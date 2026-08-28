@@ -1,0 +1,23 @@
+# One-shot initializer for the shared PDF socket volume. A mounted named volume
+# shadows the image's own /run/artifactflow/pdf-processor directory with a
+# root-owned empty directory, so the processor's non-root user (uid/gid 10002)
+# could not create its Unix socket there. This gives the volume directory to
+# that user before the processor starts, mirroring the local Compose
+# pdf-processor-socket-init. Installed and started only when PDF is enabled.
+[Unit]
+Description=ArtifactFlow PDF processor socket volume initialization
+
+[Container]
+ContainerName=artifactflow-pdf-processor-socket-init
+Image=localhost/artifactflow-pdf-processor:pinned
+Network=none
+User=0:0
+Volume=artifactflow-pdf-socket:/socket
+Exec=sh -c "chmod 0755 /socket && chown 10002:10002 /socket"
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

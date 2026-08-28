@@ -1,0 +1,44 @@
+# Artifact origin (ARTIFACT_URL). Serves untrusted artifact HTML on
+# 127.0.0.1:8081 behind the nginx vhost for the artifact hostname. Runs the
+# same release image with the cookieless artifact-host role; the storage
+# volume is mounted read-only, this surface serves bytes the app role wrote.
+#
+# Role pins below are deliberate:
+#   - RUN_MIGRATIONS=0: only the app role may migrate, whatever app.env says.
+#   - IMAGE_PARSER_*: empty; the boot gate rejects parser credentials on any
+#     role but app, and this surface must never hold them.
+#   - PDF_PROCESSOR_ url/socket/secret pinned empty; when PDF is enabled this
+#     role inherits PDF_PROCESSOR_ENABLED=true from app.env for presentation
+#     only, and must hold no processor connection values.
+#
+# artifact-host.env loads after app.env and overrides DB_USERNAME/DB_PASSWORD
+# with the restricted artifact-host database role (grant manifest:
+# docs/operations/artifact-host-database-grants.sql at the pinned release tag).
+[Unit]
+Description=ArtifactFlow artifact host (HTTP, artifact origin)
+Wants=artifactflow-postgres.service artifactflow-storage-init.service
+After=artifactflow-postgres.service artifactflow-storage-init.service
+
+[Container]
+ContainerName=artifactflow-artifact-host
+Image=artifactflow-release.image
+Network=artifactflow.network
+EnvironmentFile=/etc/artifactflow/app.env
+EnvironmentFile=/etc/artifactflow/artifact-host.env
+Environment=APP_RUNTIME_ROLE=artifact-host PORT=8081 RUN_MIGRATIONS=0 IMAGE_PARSER_URL= IMAGE_PARSER_SHARED_SECRET= PDF_PROCESSOR_URL= PDF_PROCESSOR_SOCKET_PATH= PDF_PROCESSOR_SHARED_SECRET=
+PublishPort=127.0.0.1:8081:8081
+Volume=artifactflow-storage:/var/www/html/storage/app:ro
+Volume=/etc/artifactflow/db-ca.pem:/etc/artifactflow/db-ca.pem:ro,z
+HealthCmd=sh /var/www/html/docker/healthcheck-app.sh
+HealthInterval=15s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=30s
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

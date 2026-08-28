@@ -1,0 +1,9 @@
+# Private network for the image parser. Internal=true means no external
+# route: the parser can reach nothing outside this network and nothing can
+# publish its port. Only the app role joins it.
+[Unit]
+Description=ArtifactFlow image-parser private network (no external route)
+
+[Network]
+NetworkName=artifactflow-parser
+Internal=true

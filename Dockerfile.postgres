@@ -1,0 +1,26 @@
+# Self-managed PostgreSQL 17 for the single-VM deployment. ArtifactFlow's
+# production boot gate requires DB_SSLMODE=verify-full (CA chain + hostname
+# verification), so the server must present a certificate for the exact name
+# the app connects to. This image generates a deployment-private CA on the
+# data volume and re-issues a server certificate for DB_SERVER_DOMAIN (the
+# container's DNS name on the podman network) on every boot.
+#
+# Build on the VM:
+#   podman build -f Dockerfile.postgres -t localhost/artifactflow-postgres:17 .
+#
+# The digest matches the pin reviewed in the main repository's
+# docker-compose.yml; bump both together.
+FROM postgres:17.2-alpine@sha256:7e5df973a74872482e320dcbdeb055e178d6f42de0558b083892c50cda833c96
+
+RUN apk add --no-cache openssl
+
+# Keep the cluster in a subdirectory so the volume root can also hold the
+# persistent certs directory.
+ENV PGDATA=/var/lib/postgresql/data/pgdata
+
+COPY postgres-entrypoint-ssl.sh /usr/local/bin/postgres-entrypoint-ssl.sh
+
+RUN chmod 0755 /usr/local/bin/postgres-entrypoint-ssl.sh
+
+ENTRYPOINT ["postgres-entrypoint-ssl.sh"]
+CMD ["postgres"]

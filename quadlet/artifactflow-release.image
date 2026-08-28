@@ -1,0 +1,20 @@
+# Single point of truth for the deployed ArtifactFlow release. Every app-image
+# unit (app, artifact-host, worker, scheduler, storage-init) references this
+# unit, so an upgrade is: verify the new digest's attestation, change the line
+# below, `systemctl --user daemon-reload`, restart the services.
+#
+# The application is never built on this host, always deploy by digest, and
+# verify build provenance before every bump:
+#
+#   gh attestation verify \
+#     oci://ghcr.io/gadsotek/artifactflow@sha256:<digest> \
+#     --repo Gadsotek/artifactflow \
+#     --signer-workflow Gadsotek/artifactflow/.github/workflows/release.yml \
+#     --predicate-type https://slsa.dev/provenance/v1
+#
+# Pinned release: ArtifactFlow v0.1.0
+[Unit]
+Description=ArtifactFlow pinned release image
+
+[Image]
+Image=ghcr.io/gadsotek/artifactflow@sha256:123d7b4ba58f65a20f933b251313333ff191c5fec06bc424ebf54945cd779542

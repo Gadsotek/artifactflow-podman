@@ -1,0 +1,35 @@
+# App origin (APP_URL). Serves the authenticated UI and API on
+# 127.0.0.1:8080, reachable only through the nginx vhost for the app
+# hostname. Keep PublishPort loopback-bound: TRUSTED_PROXIES=REMOTE_ADDR
+# assumes the only peer that can reach this port is nginx on this host.
+[Unit]
+Description=ArtifactFlow app (HTTP, app origin)
+Wants=artifactflow-postgres.service artifactflow-storage-init.service
+After=artifactflow-postgres.service artifactflow-storage-init.service
+
+[Container]
+ContainerName=artifactflow-app
+Image=artifactflow-release.image
+Network=artifactflow.network
+Network=artifactflow-parser.network
+EnvironmentFile=/etc/artifactflow/app.env
+Environment=APP_RUNTIME_ROLE=app PORT=8080
+PublishPort=127.0.0.1:8080:8080
+Volume=artifactflow-storage:/var/www/html/storage/app
+Volume=/etc/artifactflow/db-ca.pem:/etc/artifactflow/db-ca.pem:ro,z
+# PDF processor Unix socket (read-only). Harmless empty mount when PDF is off;
+# the processor populates it with the socket when PDF is enabled.
+Volume=artifactflow-pdf-socket:/run/artifactflow/pdf-processor:ro
+HealthCmd=sh /var/www/html/docker/healthcheck-app.sh
+HealthInterval=15s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=30s
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArtifactFlow · simple install guide</title>
+<style>
+  :root{
+    --bg:#f4f6f5; --card:#ffffff; --ink:#1f2d33; --soft:#5c6f78; --line:#d9e2df;
+    --green:#12896f; --green-bg:#e6f2ee; --blue:#3b5ba5; --blue-bg:#e9edf7;
+    --amber:#b4671a; --amber-bg:#f8efe3; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#0f1a1e;--card:#16242a;--ink:#e3ede9;--soft:#9fb2ac;--line:#2a3c41;
+      --green:#4cc0a4;--green-bg:#15302b;--blue:#8ba3dd;--blue-bg:#1c2739;--amber:#e0975a;--amber-bg:#33260f;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif;line-height:1.6;font-size:17px}
+  main{max-width:760px;margin:0 auto;padding:40px 22px 80px}
+  h1{font-size:clamp(26px,5vw,36px);margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--soft);font-size:18px;margin:0 0 30px}
+  h2{font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--soft);
+    margin:38px 0 14px;border-top:1px solid var(--line);padding-top:16px}
+  code{font-family:var(--mono);font-size:.86em;background:var(--green-bg);
+    color:inherit;padding:2px 7px;border-radius:5px;word-break:break-word}
+  pre{background:#14211f;color:#dce7e2;font-family:var(--mono);font-size:13.5px;line-height:1.7;
+    padding:14px 16px;border-radius:9px;overflow-x:auto;margin:12px 0}
+
+  .need{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 6px}
+  .need span{background:var(--card);border:1px solid var(--line);border-radius:999px;
+    padding:7px 14px;font-size:14.5px;color:var(--soft)}
+  .need b{color:var(--ink);font-weight:600}
+
+  .step{display:flex;gap:18px;background:var(--card);border:1px solid var(--line);
+    border-radius:14px;padding:20px 22px;margin:14px 0}
+  .num{flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:var(--green);
+    color:#fff;font-weight:700;font-size:19px;display:grid;place-items:center}
+  .step h3{margin:4px 0 6px;font-size:19px}
+  .step p{margin:6px 0}
+  .step .soft{color:var(--soft);font-size:15.5px}
+
+  .panel{border-radius:14px;padding:18px 22px;margin:14px 0;border:1px solid var(--line)}
+  .panel.blue{background:var(--blue-bg);border-color:transparent}
+  .panel.amber{background:var(--amber-bg);border-color:transparent}
+  .panel h3{margin:0 0 6px;font-size:18px;display:flex;align-items:center;gap:9px}
+  .panel .ic{width:24px;height:24px;flex:0 0 auto}
+  .panel p{margin:7px 0}
+  .panel.blue h3{color:var(--blue)} .panel.amber h3{color:var(--amber)}
+
+  .reassure{margin-top:34px;padding:16px 20px;border-left:4px solid var(--green);
+    background:var(--green-bg);border-radius:0 10px 10px 0}
+  .reassure b{color:var(--green)}
+  footer{margin-top:34px;color:var(--soft);font-size:14px;border-top:1px solid var(--line);padding-top:14px}
+  .rooms{display:flex;gap:12px;margin:12px 0 2px;flex-wrap:wrap}
+  .room{flex:1;min-width:170px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:14.5px}
+  .room b{display:block;margin-bottom:3px}
+  .room.locked{border-style:dashed}
+
+  /* accordion (native <details>) */
+  .acc{border:1px solid var(--line);border-radius:12px;background:var(--card);margin:12px 0;overflow:hidden}
+  .acc>summary{cursor:pointer;padding:13px 16px;font-weight:600;font-size:15.5px;
+    list-style:none;display:flex;align-items:center;gap:9px}
+  .acc>summary::-webkit-details-marker{display:none}
+  .acc>summary::before{content:"\25B8";color:var(--amber);font-size:14px;transition:transform .15s ease}
+  .acc[open]>summary::before{transform:rotate(90deg)}
+  .acc[open]>summary{border-bottom:1px solid var(--line)}
+  .acc-body{padding:12px 16px 15px;font-size:15px}
+  .acc-body ol{margin:8px 0;padding-left:20px}
+  .acc-body li{margin:6px 0}
+  @media (prefers-reduced-motion:reduce){.acc>summary::before{transition:none}}
+</style>
+</head>
+<body>
+<main>
+
+  <h1>ArtifactFlow: install it on your server</h1>
+  <p class="sub">No DevOps required. Three steps, and a prepared script does most of it for you.</p>
+
+  <h2>What you need first</h2>
+  <div class="need">
+    <span><b>SSH access</b> to your server</span>
+    <span>ability to add <b>2 DNS records</b></span>
+    <span><b>mail</b>: SMTP details or a Resend key</span>
+  </div>
+
+  <h2>Three steps</h2>
+
+  <div class="step">
+    <div class="num">1</div>
+    <div>
+      <h3>Run the installer</h3>
+      <p>On the server, as the <code>artifactflow</code> user, from a clone of this repository:</p>
+      <pre>git clone &lt;repo url&gt;   # first time only
+cd artifactflow-podman
+./install.sh</pre>
+      <p class="soft">The script asks for your two hostnames and mail transport, generates all passwords and keys itself, builds and starts every service, prepares the database, and offers to create the first administrator. If something goes wrong it tells you exactly what and where to look.</p>
+      <p class="soft">It also asks whether to enable <b>PDF artifacts</b>. This is optional and off by default. If unsure, leave it off, you can enable it later with <code>./install.sh --enable-pdf</code>.</p>
+      <details class="acc">
+        <summary>Enabled PDF? Here is what to do extra</summary>
+        <div class="acc-body">
+          <p>The installer already sets the PDF processor up safely: no network, one instance, strict memory and process limits. Before you rely on PDF in production, confirm the rest once:</p>
+          <ol>
+            <li>The <code>artifactflow-pdf-processor</code> service is healthy (<code>systemctl --user status artifactflow-pdf-processor</code>).</li>
+            <li>Its startup log shows the containment filter active and the healthcheck passes (<code>journalctl --user -u artifactflow-pdf-processor</code>).</li>
+            <li>Inside the app container, <code>php artisan artifactflow:doctor</code> reports no PDF error.</li>
+            <li>Upload a test PDF: text is extracted and it renders from the artifact hostname.</li>
+            <li>Do the preview check on Safari/iOS.</li>
+            <li>Write down a short note that the above passed (your final sign-off).</li>
+          </ol>
+          <p class="soft">Full checklist with the exact commands: <code>TESTING.md</code>, section "PDF enablement gate". Background on why: <code>README.md</code>, "PDF uploads".</p>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">2</div>
+    <div>
+      <h3>Point two hostnames at the server</h3>
+      <p>At your DNS provider add two <b>A records</b> to the server's IP (the installer prints it at the end):</p>
+      <pre>artifactflow.example.com   ->  server IP
+artifacts.example.com      ->  server IP</pre>
+      <p class="soft">Why two? The blue box below explains. It can be the same server, this is just about two different names.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">3</div>
+    <div>
+      <h3>Turn on HTTPS (certificates)</h3>
+      <p>The last piece, as <b>root</b>. The installer prints the exact commands at the end. In short:</p>
+      <pre>certbot --nginx -d artifactflow.example.com
+certbot --nginx -d artifacts.example.com</pre>
+      <p class="soft">Certbot obtains the padlock (certificate) itself, for free. More in the amber box below.</p>
+    </div>
+  </div>
+
+  <h2>Two things worth explaining</h2>
+
+  <div class="panel blue">
+    <h3><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="10" width="8" height="11" rx="1"/><rect x="13" y="10" width="8" height="11" rx="1"/><path d="M5 10V7a2 2 0 0 1 2-2M17 10V7a2 2 0 0 0-2-2"/></svg>Why two hostnames?</h3>
+    <p>The app can display content uploaded by users, and that content can carry its own code. To keep that foreign code away from your login and data, it is served from a <b>separate hostname</b>. The browser then treats it as a stranger and walls it off.</p>
+    <div class="rooms">
+      <div class="room"><b>artifactflow.example.com</b>The app itself: login, your data. Trusted.</div>
+      <div class="room locked"><b>artifacts.example.com</b>Only displays uploaded artifacts. Separate, "behind a wall".</div>
+    </div>
+    <p class="soft">Think of two locked rooms in the same building: the second one has no key to the safe in the first. That is why it must be two different names, not the same one.</p>
+  </div>
+
+  <div class="panel amber">
+    <h3><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>What are certificates (HTTPS)?</h3>
+    <p>That is the padlock in the address bar. It makes the connection between the user and the server encrypted, and proves the hostname is really yours. Production will not even start without it.</p>
+    <p class="soft">You do not buy or hand-configure anything. The <code>certbot</code> tool obtains it for free with one command per hostname, and renews it too. That is why DNS (step 2) has to be done first: certbot needs to verify the hostname points at your server.</p>
+  </div>
+
+  <div class="reassure">
+    <b>If something gets stuck:</b> the installer prints what failed and where to look
+    (usually <code>journalctl --user -u artifactflow-app</code>). Nothing breaks permanently, the script can be run again.
+  </div>
+
+  <footer>
+    The detailed technical version is in <code>README.md</code>. This is the light version for the first run.
+  </footer>
+
+</main>
+</body>
+</html>

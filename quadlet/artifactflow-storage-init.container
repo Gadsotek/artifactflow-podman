@@ -1,0 +1,20 @@
+# One-shot initializer for the shared storage volume. It pre-creates the
+# directories the stock entrypoint mkdir-ps, so the artifact-host container
+# can mount the volume read-only (the documented preference) without racing
+# the app container's first boot to create them.
+[Unit]
+Description=ArtifactFlow storage volume initialization
+
+[Container]
+ContainerName=artifactflow-storage-init
+Image=artifactflow-release.image
+Network=none
+Volume=artifactflow-storage:/var/www/html/storage/app
+Exec=sh -c "mkdir -p /var/www/html/storage/app/public /var/www/html/storage/app/private_artifacts"
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

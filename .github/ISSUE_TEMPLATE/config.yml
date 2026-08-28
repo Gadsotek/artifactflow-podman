@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ArtifactFlow application (bugs and features)
+    url: https://github.com/Gadsotek/artifactflow/issues
+    about: For the application itself (not this deployment kit), use the main repository.
+  - name: Security vulnerability
+    url: https://github.com/Gadsotek/artifactflow-podman/blob/main/SECURITY.md
+    about: Do not open a public issue. Follow the security policy to report privately.

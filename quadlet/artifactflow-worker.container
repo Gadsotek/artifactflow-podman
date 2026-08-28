@@ -1,0 +1,30 @@
+# Queue worker (queue:work; outbound mail is the only queued work today).
+# No published port, no storage volume, mirrors the reference topology.
+# On first boot it crash-loops until the first migration creates the schema;
+# the runbook therefore starts it only after `php artisan migrate` has run.
+[Unit]
+Description=ArtifactFlow queue worker
+Wants=artifactflow-postgres.service
+After=artifactflow-postgres.service artifactflow-app.service
+
+[Container]
+ContainerName=artifactflow-worker
+Image=artifactflow-release.image
+Network=artifactflow.network
+EnvironmentFile=/etc/artifactflow/app.env
+Environment=APP_RUNTIME_ROLE=worker IMAGE_PARSER_URL= IMAGE_PARSER_SHARED_SECRET= PDF_PROCESSOR_ENABLED=false PDF_PROCESSOR_URL= PDF_PROCESSOR_SOCKET_PATH= PDF_PROCESSOR_SHARED_SECRET=
+Exec=sh /var/www/html/docker/start-worker.sh
+Volume=/etc/artifactflow/db-ca.pem:/etc/artifactflow/db-ca.pem:ro,z
+HealthCmd=sh /var/www/html/docker/healthcheck-app.sh
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=20s
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

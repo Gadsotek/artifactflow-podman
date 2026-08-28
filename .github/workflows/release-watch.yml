@@ -1,0 +1,135 @@
+# Watches the main repository for a new release and opens a digest-bump PR
+# here. The apply side stays human: merge the PR, then run ./deploy.sh on the
+# VM. This workflow never touches the VM.
+#
+# What the PR contains:
+#   - quadlet/artifactflow-release.image: new digest + pinned-release comment
+#   - Dockerfile.image-parser: new tag commit SHA + php base digest synced
+#     from the release's root Dockerfile
+#   - every other pinned-tag reference in the repo (README, GUIDE)
+#   - PR body: attestation verdict, and diffs of the artifact-host grants
+#     manifest and .env.production.example between the old and new tags, so
+#     new required configuration is visible before merge.
+#
+# The new digest is attestation-verified (SLSA provenance, release workflow
+# signer) BEFORE the PR is opened; a failed verification fails the run and no
+# PR appears.
+#
+# Setup once, after pushing this repo to GitHub:
+#   Settings -> Actions -> General -> "Allow GitHub Actions to create and
+#   approve pull requests" must be enabled.
+
+name: Release watch
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  APP_REPO: Gadsotek/artifactflow
+  IMAGE: ghcr.io/gadsotek/artifactflow
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check for a new release and open the bump PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+
+          cur_tag="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' quadlet/artifactflow-release.image)"
+          cur_digest="$(sed -n 's|^Image=ghcr.io/gadsotek/artifactflow@sha256:\([0-9a-f]*\)$|\1|p' quadlet/artifactflow-release.image)"
+          cur_commit="$(sed -n 's/^ARG ARTIFACTFLOW_COMMIT=\([0-9a-f]*\)$/\1/p' Dockerfile.image-parser)"
+          [ -n "$cur_tag" ] && [ -n "$cur_digest" ] && [ -n "$cur_commit" ]
+
+          new_tag="$(gh release view --repo "$APP_REPO" --json tagName --jq .tagName)"
+          if [ "$new_tag" = "$cur_tag" ]; then
+            echo "Pinned $cur_tag is the latest release; nothing to do."
+            exit 0
+          fi
+
+          branch="release-bump/$new_tag"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "Bump branch $branch already exists; nothing to do."
+            exit 0
+          fi
+
+          new_digest="$(gh release view "$new_tag" --repo "$APP_REPO" --json body --jq .body \
+            | grep -oE 'sha256:[0-9a-f]{64}' | head -1 | cut -d: -f2)"
+          [ -n "$new_digest" ]
+
+          # Hard gate: provenance must verify before any PR is opened.
+          gh attestation verify \
+            "oci://$IMAGE@sha256:$new_digest" \
+            --repo "$APP_REPO" \
+            --signer-workflow "$APP_REPO/.github/workflows/release.yml" \
+            --predicate-type https://slsa.dev/provenance/v1
+
+          new_commit="$(gh api "repos/$APP_REPO/commits/$new_tag" --jq .sha)"
+          new_php_base="$(curl -fsSL "https://raw.githubusercontent.com/$APP_REPO/$new_tag/Dockerfile" \
+            | grep -E '^FROM php:[^ ]+ AS image-parser$' | awk '{print $2}')"
+          [ -n "$new_commit" ] && [ -n "$new_php_base" ]
+
+          # Apply the bump.
+          sed -i "s/$cur_digest/$new_digest/" quadlet/artifactflow-release.image
+          sed -i "s/$cur_commit/$new_commit/g" Dockerfile.image-parser
+          sed -i -E "s|^FROM php:[^ ]+|FROM $new_php_base|" Dockerfile.image-parser
+          for f in $(git grep -l "$cur_tag" -- . ':!.github'); do
+            sed -i "s/$cur_tag/$new_tag/g" "$f"
+          done
+
+          # Operator-facing diffs for the PR body.
+          raw="https://raw.githubusercontent.com/$APP_REPO"
+          curl -fsSL "$raw/$cur_tag/docs/operations/artifact-host-database-grants.sql" -o /tmp/grants-old.sql || : > /tmp/grants-old.sql
+          curl -fsSL "$raw/$new_tag/docs/operations/artifact-host-database-grants.sql" -o /tmp/grants-new.sql || : > /tmp/grants-new.sql
+          grants_diff="$(diff -u /tmp/grants-old.sql /tmp/grants-new.sql || true)"
+          curl -fsSL "$raw/$cur_tag/.env.production.example" -o /tmp/env-old || : > /tmp/env-old
+          curl -fsSL "$raw/$new_tag/.env.production.example" -o /tmp/env-new || : > /tmp/env-new
+          env_diff="$(diff -u /tmp/env-old /tmp/env-new || true)"
+
+          {
+            echo "Bumps the pinned release from $cur_tag to $new_tag."
+            echo
+            echo "- Digest: \`sha256:$new_digest\` (attestation verified in this run: SLSA provenance, release-workflow signer)."
+            echo "- Parser source pin: \`$new_commit\`, php base \`$new_php_base\`."
+            echo "- Release notes: https://github.com/$APP_REPO/releases/tag/$new_tag"
+            echo
+            echo "Review before merging: new boot-gate requirements in the notes, and the diffs below."
+            echo "After merging, run \`./deploy.sh\` on the VM."
+            echo
+            echo "<details><summary>artifact-host grants manifest diff ($cur_tag..$new_tag)</summary>"
+            echo
+            echo '```diff'
+            if [ -n "$grants_diff" ]; then echo "$grants_diff" | head -200; else echo "(unchanged)"; fi
+            echo '```'
+            echo "</details>"
+            echo
+            echo "<details><summary>.env.production.example diff ($cur_tag..$new_tag)</summary>"
+            echo
+            echo '```diff'
+            if [ -n "$env_diff" ]; then echo "$env_diff" | head -200; else echo "(unchanged)"; fi
+            echo '```'
+            echo "</details>"
+          } > /tmp/pr-body.md
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "Bump pinned release to $new_tag"
+          git push origin "$branch"
+          gh pr create \
+            --title "Bump pinned release to $new_tag" \
+            --body-file /tmp/pr-body.md \
+            --base main \
+            --head "$branch"

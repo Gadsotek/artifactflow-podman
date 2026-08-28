@@ -1,0 +1,76 @@
+name: Bug report
+description: Something in this deployment kit does not work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. This is the single-VM Podman deployment kit for
+        ArtifactFlow. For bugs in ArtifactFlow itself (the application), please
+        use the main repository instead.
+
+        Do not paste secrets, private keys, certificates, tokens, or the
+        contents of your real `.env` files.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected versus what actually happened. Include exact error text if short.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The minimal steps. Which script or unit, and at which point it failed.
+      placeholder: |
+        1. Ran ./install.sh
+        2. At "Starting the app" it ...
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: Pinned ArtifactFlow release
+      description: The tag in quadlet/artifactflow-release.image (for example v0.1.0).
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which part
+      options:
+        - install.sh
+        - deploy.sh
+        - release-watch workflow
+        - Quadlet unit
+        - nginx vhost
+        - Postgres image / TLS
+        - image parser
+        - documentation
+        - other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and version, Podman version (podman --version).
+      placeholder: "Debian 13, Podman 5.2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Output from journalctl --user -u artifactflow-<unit>, with any secrets removed.
+      render: shell
+  - type: checkboxes
+    id: confirms
+    attributes:
+      label: Confirmations
+      options:
+        - label: This is about the deployment kit, not ArtifactFlow the application.
+          required: true
+        - label: I removed all secrets from the report.
+          required: true

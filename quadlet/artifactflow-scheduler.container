@@ -1,0 +1,30 @@
+# Scheduler (schedule:work), drives the outbox relay
+# (artifactflow:dispatch-domain-events) and nightly retention jobs. Skipping
+# it halts outbox dispatch and journal/credential pruning. Same first-boot
+# note as the worker: start it after the first migration.
+[Unit]
+Description=ArtifactFlow scheduler
+Wants=artifactflow-postgres.service
+After=artifactflow-postgres.service artifactflow-app.service
+
+[Container]
+ContainerName=artifactflow-scheduler
+Image=artifactflow-release.image
+Network=artifactflow.network
+EnvironmentFile=/etc/artifactflow/app.env
+Environment=APP_RUNTIME_ROLE=scheduler IMAGE_PARSER_URL= IMAGE_PARSER_SHARED_SECRET= PDF_PROCESSOR_ENABLED=false PDF_PROCESSOR_URL= PDF_PROCESSOR_SOCKET_PATH= PDF_PROCESSOR_SHARED_SECRET=
+Exec=sh /var/www/html/docker/start-scheduler.sh
+Volume=/etc/artifactflow/db-ca.pem:/etc/artifactflow/db-ca.pem:ro,z
+HealthCmd=sh /var/www/html/docker/healthcheck-app.sh
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=20s
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

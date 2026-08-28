@@ -1,0 +1,37 @@
+# Image parser (active since the v0.0.7+ pin; built locally from the pinned
+# release source via Dockerfile.image-parser). Reached only by the app role
+# over the internal artifactflow-parser network.
+#
+# The restrictions below are the reference set from the main repository's
+# OPERATIONS document: non-root (image user), read-only root filesystem, all
+# capabilities dropped, no-new-privileges, no-exec /tmp, CPU/memory/PID
+# limits, and a private internal network with no external route. Keep one
+# normalization process per 512 MiB cgroup, never raise PHP_CLI_SERVER_WORKERS
+# or the memory limit without the documented adversarial re-benchmark.
+[Unit]
+Description=ArtifactFlow image parser
+
+[Container]
+ContainerName=artifactflow-image-parser
+Image=localhost/artifactflow-image-parser:pinned
+Network=artifactflow-parser.network
+EnvironmentFile=/etc/artifactflow/parser.env
+Environment=IMAGE_PARSER_MAX_CLOCK_SKEW_SECONDS=120 PORT=8080
+ReadOnly=true
+Tmpfs=/tmp:rw,noexec,nosuid,size=16m
+NoNewPrivileges=true
+DropCapability=ALL
+PidsLimit=32
+PodmanArgs=--memory=512m --cpus=1.0
+HealthCmd=php /srv/image-parser/healthcheck.php
+HealthInterval=10s
+HealthTimeout=3s
+HealthRetries=6
+HealthStartPeriod=5s
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

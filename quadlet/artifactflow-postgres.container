@@ -1,0 +1,33 @@
+# Self-managed PostgreSQL with TLS that satisfies ArtifactFlow's
+# DB_SSLMODE=verify-full boot gate. The image is built locally from
+# Dockerfile.postgres; its entrypoint keeps a deployment-private CA on the
+# data volume and issues a server certificate for DB_SERVER_DOMAIN each boot.
+# After the first start, extract the CA for the app-image units:
+#
+#   podman exec artifactflow-postgres \
+#     cat /var/lib/postgresql/data/certs/root.crt > /etc/artifactflow/db-ca.pem
+[Unit]
+Description=ArtifactFlow PostgreSQL (TLS, deployment-private CA)
+
+[Container]
+ContainerName=artifactflow-postgres
+Image=localhost/artifactflow-postgres:17
+Network=artifactflow.network
+EnvironmentFile=/etc/artifactflow/postgres.env
+# Must match the DNS name the app connects to (the container name on the
+# artifactflow network), verify-full checks the certificate hostname.
+Environment=DB_SERVER_DOMAIN=artifactflow-postgres
+Volume=artifactflow-db:/var/lib/postgresql/data
+HealthCmd=sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=12
+HealthStartPeriod=15s
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

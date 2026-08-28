@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest an improvement to the single-VM deployment kit
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repo deliberately models the single-VM case. Multi-node,
+        Kubernetes, Docker Swarm, managed PaaS, or more than one replica per role
+        are out of scope; those are different deployments. Requests to relax a
+        security invariant (see SECURITY.md) need a strong justification.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that this kit makes hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you would like this kit to do, and roughly how.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security impact
+      description: Does this touch any invariant in SECURITY.md (origins, cookies, DB TLS, roles, loopback)? If so, how is it kept safe?
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This stays within the single-VM Podman scope.
+          required: true

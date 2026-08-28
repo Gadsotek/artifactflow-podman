@@ -1,0 +1,5 @@
+# Real environment files and extracted key material never enter the repo.
+*.env
+!*.env.example
+db-ca.pem
+*.pem
