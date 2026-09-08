@@ -140,7 +140,9 @@ fi
 tag="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' quadlet/artifactflow-release.image)"
 digest="$(sed -n 's|^Image=ghcr.io/gadsotek/artifactflow@sha256:\([0-9a-f]*\)$|\1|p' quadlet/artifactflow-release.image)"
 lock_tag="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' processor-images.lock)"
-[ -n "$tag" ] && [ -n "$digest" ] || die "Could not parse the pinned application release."
+if [ -z "$tag" ] || [ -z "$digest" ]; then
+  die "Could not parse the pinned application release."
+fi
 [ "$lock_tag" = "$tag" ] || die "Application and processor locks name different releases."
 SOURCE_COMMIT="$(sed -n 's/^ARG ARTIFACTFLOW_COMMIT=\([0-9a-f]*\)$/\1/p' Dockerfile.image-parser)"
 [ "${#SOURCE_COMMIT}" = "40" ] || die "Invalid pinned release source commit."

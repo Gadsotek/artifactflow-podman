@@ -235,7 +235,9 @@ have curl || echo "Note: curl not found. You will have to apply the database gra
 
 TAG="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' quadlet/artifactflow-release.image)"
 DIGEST="$(sed -n 's|^Image=ghcr.io/gadsotek/artifactflow@sha256:\([0-9a-f]*\)$|\1|p' quadlet/artifactflow-release.image)"
-[ -n "$TAG" ] && [ -n "$DIGEST" ] || die "Could not read version/digest from quadlet/artifactflow-release.image."
+if [ -z "$TAG" ] || [ -z "$DIGEST" ]; then
+  die "Could not read version/digest from quadlet/artifactflow-release.image."
+fi
 LOCK_TAG="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' processor-images.lock)"
 [ "$LOCK_TAG" = "$TAG" ] || die "Application and processor image locks name different releases."
 echo "Version: $TAG"
@@ -419,7 +421,9 @@ else
   echo "   encrypted data and 2FA unrecoverable."
 fi
 
-[ -n "$APP_HOST" ] && [ -n "$ART_HOST" ] || die "Could not determine the hostnames."
+if [ -z "$APP_HOST" ] || [ -z "$ART_HOST" ]; then
+  die "Could not determine the hostnames."
+fi
 
 # v0.2.1 uses the local image parser socket; preserve the existing HMAC secret.
 set_env IMAGE_PARSER_URL "http://localhost" "$CFG/app.env"

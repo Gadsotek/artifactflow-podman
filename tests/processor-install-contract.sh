@@ -39,7 +39,9 @@ assert_contains processor-images.lock 'DOCX_PROCESSOR_IMAGE='
 
 app_tag="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' "$root/quadlet/artifactflow-release.image")"
 lock_tag="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' "$root/processor-images.lock")"
-[ -n "$app_tag" ] && [ "$app_tag" = "$lock_tag" ] || fail 'release lock tags differ'
+if [ -z "$app_tag" ] || [ "$app_tag" != "$lock_tag" ]; then
+  fail 'release lock tags differ'
+fi
 
 pdf_ref="$(read_setting PDF_PROCESSOR_IMAGE processor-images.lock)"
 printf '%s\n' "$pdf_ref" | grep -Eq '^ghcr\.io/gadsotek/artifactflow-pdf-processor@sha256:[0-9a-f]{64}$' || \
