@@ -1,0 +1,37 @@
+# DOCX processor (strict OOXML admission + pinned LibreOffice). The app reaches
+# it only through a Unix socket, then sends the exact PDF output to the separate
+# PDFBox processor. This unit receives no PDF secret or application data.
+[Unit]
+Description=ArtifactFlow DOCX processor
+Requires=artifactflow-docx-processor-socket-init.service
+After=artifactflow-docx-processor-socket-init.service
+Before=artifactflow-app.service
+
+[Container]
+ContainerName=artifactflow-docx-processor
+Image=localhost/artifactflow-docx-processor:pinned
+Pull=never
+Network=none
+EnvironmentFile=/etc/artifactflow/docx-processor.env
+Environment=DOCX_PROCESSOR_MAX_CLOCK_SKEW_SECONDS=120 DOCX_PROCESSOR_SOCKET_PATH=/run/artifactflow/docx-processor/processor.sock
+Volume=artifactflow-docx-socket:/run/artifactflow/docx-processor
+ReadOnly=true
+Tmpfs=/tmp:rw,noexec,nosuid,nodev,size=192m,mode=1777
+NoNewPrivileges=true
+DropCapability=ALL
+PidsLimit=128
+PodmanArgs=--memory=768m --cpus=1.0
+Ulimit=nofile=256:256
+HealthCmd=php /srv/docx-processor/healthcheck.php
+HealthInterval=30s
+HealthTimeout=8s
+HealthRetries=6
+HealthStartPeriod=15s
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+RequiredBy=artifactflow-app.service

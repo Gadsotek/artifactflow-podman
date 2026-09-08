@@ -1,0 +1,26 @@
+# The published PDF image is the private TCP variant. This single-VM adapter
+# installs the SAME release's reviewed Unix-socket launcher and healthcheck.
+# Network=none replaces the private variant's outbound filter; PDFBox retains
+# artifactflow-process-deny. Never run this adapter with a network attached.
+ARG PDF_PROCESSOR_IMAGE
+ARG ARTIFACTFLOW_COMMIT
+FROM alpine:3.22 AS source
+ARG ARTIFACTFLOW_COMMIT
+ADD https://github.com/Gadsotek/artifactflow/archive/${ARTIFACTFLOW_COMMIT}.tar.gz /tmp/artifactflow.tar.gz
+RUN mkdir -p /src \
+    && tar -xzf /tmp/artifactflow.tar.gz -C /src --strip-components=1
+
+FROM ${PDF_PROCESSOR_IMAGE}
+USER root
+RUN apk add --no-cache socat=1.8.1.3-r0 \
+    && mkdir -p /run/artifactflow/pdf-processor \
+    && chown 10002:10002 /run/artifactflow/pdf-processor \
+    && chmod 0755 /run/artifactflow/pdf-processor
+COPY --from=source /src/pdf-processor-spike/start.sh /srv/pdf-processor-spike/start.sh
+COPY --from=source /src/pdf-processor-spike/healthcheck.php /srv/pdf-processor-spike/healthcheck.php
+RUN chmod 0555 /srv/pdf-processor-spike/start.sh /srv/pdf-processor-spike/healthcheck.php
+USER 10002:10002
+ENTRYPOINT []
+HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=6 \
+    CMD ["php", "/srv/pdf-processor-spike/healthcheck.php"]
+CMD ["/srv/pdf-processor-spike/start.sh"]

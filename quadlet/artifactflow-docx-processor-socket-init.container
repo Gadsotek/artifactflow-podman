@@ -1,0 +1,25 @@
+# Give the DOCX socket volume to the image's non-root uid/gid 10004 before the
+# networkless LibreOffice processor starts. Installed only when DOCX is enabled.
+[Unit]
+Description=ArtifactFlow DOCX processor socket volume initialization
+
+[Container]
+ContainerName=artifactflow-docx-processor-socket-init
+Image=localhost/artifactflow-docx-processor:pinned
+Pull=never
+Network=none
+User=0:0
+Volume=artifactflow-docx-socket:/socket
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+AddCapability=CHOWN FOWNER
+Entrypoint=/bin/sh
+Exec=-c "chmod 0755 /socket && chown 10004:10004 /socket"
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

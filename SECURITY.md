@@ -23,27 +23,33 @@ by digest.
   manifest allows (page/version/share reads, `UPDATE(updated_at)` for its lock
   paths, the artifact rate-limit tables). It cannot touch app write, auth, or
   limiter state.
-- **Isolated image parser.** The parser is reached over an `Internal=true`
-  network with no external route and holds only its shared secret; every other
-  role pins that secret empty and their boot gate rejects a non-empty value.
+- **Isolated image parser.** The parser uses a private Unix socket and
+  `Network=none`, just like the document processors. Socket mode is `0660`;
+  only the app receives a socket mount and its group. Other roles pin every
+  connection field empty.
 - **Loopback edge.** Container ports bind to `127.0.0.1` only; nginx is the sole
   reachable path. `TRUSTED_PROXIES=REMOTE_ADDR` is safe only under that
   invariant. Never publish 8080/8081 on a routable address.
-- **Attested, digest-pinned image.** The release image is pinned by digest and
-  its build provenance is verified (`gh attestation verify`) before deploy;
-  `install.sh` and `deploy.sh` verify when `gh` is available.
+- **Attested, digest-pinned images.** The application and every enabled
+  PDF/XLSX/DOCX processor are pinned to immutable references from one release.
+  PDF uses a locally built socket adapter over its attested release base;
+  the final adapter has no upstream attestation and must also be scanned.
+  `install.sh` and `deploy.sh` verify their release-workflow provenance when
+  `gh` is available; a missing/malformed required processor pin fails closed.
 - **Secret handling.** `install.sh` generates each secret independently
   (`openssl rand -base64 32`), writes env files `0600` under `umask 077`, and
   passes the admin password through stdin into the container rather than process
   arguments. `.gitignore` excludes `*.env` (except examples), `*.pem`, and the
   extracted DB CA.
-- **PDF is opt-in and off by default.** PDF artifacts are production-capable but
-  disabled unless the installer opt-in enables them. When enabled, the processor
-  runs with `Network=none` reached only over a Unix socket, one replica, hard
-  resource limits (512 MiB / 1 CPU / 32 PIDs), read-only rootfs, dropped
-  capabilities, and a dedicated secret that non-app roles pin empty. Enabling PDF
-  in production still requires completing the per-deployment enablement gate in
-  `TESTING.md` and the release's `RELEASE-CHECKLIST.md`.
+- **Document formats are explicit opt-ins.** PDF, XLSX, and DOCX remain off by
+  default. Each enabled processor runs as one non-root, read-only,
+  capability-free instance with `Network=none`, its own resource ceilings,
+  private Unix socket, and dedicated secret. The app mounts sockets read-only;
+  artifact-host receives presentation flags but no processor connection values;
+  workers and scheduler receive neither flags nor credentials. XLSX exposes
+  only its typed manifest. DOCX requires PDF and neither processor receives the
+  other's secret. Production still requires the matching gates in `TESTING.md`
+  and the release's `RELEASE-CHECKLIST.md`.
 
 ## Out of scope (you still own these)
 
@@ -52,7 +58,8 @@ by digest.
   (see the ArtifactFlow `THREAT-MODEL.md`): navigation-based exfiltration is
   bounded by the isolated origin, not eliminated.
 - Backup storage security and secret-manager custody of `APP_KEY`,
-  `ARTIFACT_URL_SIGNING_KEY`, and `IMAGE_PARSER_SHARED_SECRET`.
+  `ARTIFACT_URL_SIGNING_KEY`, `IMAGE_PARSER_SHARED_SECRET`, and every enabled
+  processor secret.
 - Any TLS proxy/CDN in front of nginx must also leave `Set-Cookie` absent on
   the artifact hostname.
 

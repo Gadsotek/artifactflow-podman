@@ -1,0 +1,36 @@
+# XLSX processor (SheetJS CE). The app reaches it only through the shared Unix
+# socket. It has no network, app source, storage, database settings, or other
+# processor credentials. XLSX remains explicit opt-in.
+[Unit]
+Description=ArtifactFlow XLSX processor
+Requires=artifactflow-xlsx-processor-socket-init.service
+After=artifactflow-xlsx-processor-socket-init.service
+Before=artifactflow-app.service
+
+[Container]
+ContainerName=artifactflow-xlsx-processor
+Image=localhost/artifactflow-xlsx-processor:pinned
+Pull=never
+Network=none
+EnvironmentFile=/etc/artifactflow/xlsx-processor.env
+Environment=XLSX_PROCESSOR_SOCKET_PATH=/run/artifactflow/xlsx-processor/processor.sock
+Volume=artifactflow-xlsx-socket:/run/artifactflow/xlsx-processor
+ReadOnly=true
+Tmpfs=/tmp:rw,noexec,nosuid,size=64m
+NoNewPrivileges=true
+DropCapability=ALL
+PidsLimit=32
+PodmanArgs=--memory=384m --cpus=1.0
+HealthCmd=node /srv/xlsx-processor-spike/healthcheck.cjs
+HealthInterval=30s
+HealthTimeout=3s
+HealthRetries=6
+HealthStartPeriod=30s
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+RequiredBy=artifactflow-app.service

@@ -4,22 +4,28 @@
 # assumes the only peer that can reach this port is nginx on this host.
 [Unit]
 Description=ArtifactFlow app (HTTP, app origin)
-Wants=artifactflow-postgres.service artifactflow-storage-init.service
-After=artifactflow-postgres.service artifactflow-storage-init.service
+Requires=artifactflow-postgres.service artifactflow-storage-init.service artifactflow-image-parser.service
+After=artifactflow-postgres.service artifactflow-storage-init.service artifactflow-image-parser.service
 
 [Container]
 ContainerName=artifactflow-app
 Image=artifactflow-release.image
 Network=artifactflow.network
-Network=artifactflow-parser.network
+GroupAdd=10001
+GroupAdd=10002
+GroupAdd=10003
+GroupAdd=10004
+Volume=artifactflow-image-socket:/run/artifactflow/image-parser:ro
 EnvironmentFile=/etc/artifactflow/app.env
 Environment=APP_RUNTIME_ROLE=app PORT=8080
 PublishPort=127.0.0.1:8080:8080
 Volume=artifactflow-storage:/var/www/html/storage/app
 Volume=/etc/artifactflow/db-ca.pem:/etc/artifactflow/db-ca.pem:ro,z
-# PDF processor Unix socket (read-only). Harmless empty mount when PDF is off;
-# the processor populates it with the socket when PDF is enabled.
+# Processor Unix sockets are read-only to the app. The named volumes remain
+# harmless and empty for formats that have not been enabled.
 Volume=artifactflow-pdf-socket:/run/artifactflow/pdf-processor:ro
+Volume=artifactflow-xlsx-socket:/run/artifactflow/xlsx-processor:ro
+Volume=artifactflow-docx-socket:/run/artifactflow/docx-processor:ro
 HealthCmd=sh /var/www/html/docker/healthcheck-app.sh
 HealthInterval=15s
 HealthTimeout=5s

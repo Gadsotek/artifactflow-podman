@@ -17,11 +17,12 @@ Please read `README.md` and `SECURITY.md` first, and the main repository's
 - **Never commit secrets.** No real `.env` files, private keys, certificates, or
   tokens. `.gitignore` already excludes `*.env` (except `*.env.example`),
   `*.pem`, and `db-ca.pem`; keep it that way.
-- **Keep the pins consistent.** The release digest lives only in
-  `quadlet/artifactflow-release.image`. If you bump it, also update
-  `ARTIFACTFLOW_COMMIT` and the base digest in `Dockerfile.image-parser`, and
-  every version reference in the docs. Verify the new digest with
-  `gh attestation verify` before proposing the bump.
+- **Keep the pins consistent.** The application digest lives in
+  `quadlet/artifactflow-release.image`; matching PDF/XLSX/DOCX digests live in
+  `processor-images.lock`. If you bump the release, update all of them plus
+  `ARTIFACTFLOW_COMMIT`, the base digest in `Dockerfile.image-parser`, and every
+  version reference in the docs. Verify every image attestation before
+  proposing the bump; never mix processor images from another release.
 
 ## Scope
 
@@ -39,9 +40,21 @@ models the single-VM case. Open an issue to discuss before large reworks.
   `bash -n <script>` and `shellcheck <script>`, and preserve the safety
   behaviours (refuse to run as root, keep secrets out of process arguments,
   write env files `0600`).
-- **Quadlet units and env examples**: keep role pins intact (empty parser/PDF
-  secrets on non-app roles, `RUN_MIGRATIONS=0` on artifact-host). Add new
-  required variables to the matching `env/*.example` with a safe default.
+- **Quadlet units and env examples**: keep role pins intact (empty parser and
+  processor connection values on non-app roles, every processor disabled on
+  workers/schedulers, `RUN_MIGRATIONS=0` on artifact-host). Add new required
+  variables to the matching `env/*.example` with a safe default.
+- **Contract test**: run `bash tests/processor-install-contract.sh` and
+  `shellcheck install.sh deploy.sh tests/processor-install-contract.sh`
+  whenever the installer, deploy script, processor lock, or Quadlet units
+  change. CI enforces both.
+- Run `python3 tests/deployment-contract.py`, `python3 tests/installer-behavior.py`
+  (Linux), and `bash tests/quadlet-generate.sh` (Podman 5+). The behavioral tests
+  use synthetic fixture files and mock host commands; they never touch a real
+  deployment. On native amd64 Linux, build the local images and run
+  `python3 tests/processor-runtime.py` with Podman, or `CONTAINER_ENGINE=docker`
+  for the additional Docker/CI check. A Docker run does not replace rootless
+  Podman/systemd and browser verification on the target VM.
 - **Docs**: if behaviour changes, update `README.md` and, where relevant,
   `GUIDE.html`.
 

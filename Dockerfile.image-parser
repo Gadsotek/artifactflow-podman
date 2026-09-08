@@ -1,4 +1,4 @@
-# Image parser for the pinned release (v0.1.0, commit below). On every
+# Image parser for the pinned release (v0.2.1, commit below). On every
 # release bump: update ARTIFACTFLOW_COMMIT to the new tag's **commit SHA**
 # (tags are mutable references and a source tarball carries no signature, so
 # the immutable SHA is the strongest pin available for a source archive),
@@ -12,8 +12,8 @@
 #   podman build -f Dockerfile.image-parser \
 #     -t localhost/artifactflow-image-parser:pinned .
 #
-# v0.1.0 = tag commit d5b45b47f801f8acfec36fabf1e081285b6f99fa
-ARG ARTIFACTFLOW_COMMIT=d5b45b47f801f8acfec36fabf1e081285b6f99fa
+# v0.2.1 = tag commit d9dbb6d5c8bfb838a056ff8516c2b3df31bdaaac
+ARG ARTIFACTFLOW_COMMIT=d9dbb6d5c8bfb838a056ff8516c2b3df31bdaaac
 
 FROM alpine:3.22 AS source
 ARG ARTIFACTFLOW_COMMIT
@@ -36,19 +36,25 @@ RUN apk add --no-cache --virtual .image-parser-build-deps \
         "c-ares>=1.34.8-r0" \
         libjpeg-turbo \
         libpng \
+        "libcrypto3>=3.5.8-r0" \
+        "libssl3>=3.5.8-r0" \
+        "openssl>=3.5.8-r0" \
+        socat=1.8.1.3-r0 \
     && apk del .image-parser-build-deps
 
 COPY --from=source /src/image-parser /srv/image-parser
 
 RUN addgroup -S -g 10001 image-parser \
     && adduser -S -D -H -u 10001 -G image-parser -s /sbin/nologin image-parser \
+    && mkdir -p /run/artifactflow/image-parser \
+    && chown image-parser:image-parser /run/artifactflow/image-parser \
+    && chmod 0755 /run/artifactflow/image-parser \
+    && sed -i 's/mode=0666/mode=0660/' /srv/image-parser/start.sh \
     && chmod 0555 /srv/image-parser/start.sh
 
 WORKDIR /srv/image-parser
 
 USER image-parser
-
-EXPOSE 8080
 
 # Keep one normalization process inside the 512 MiB cgroup; scale with
 # separate parser containers and memory limits, never a prefork pool.
