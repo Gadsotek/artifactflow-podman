@@ -12,7 +12,7 @@ orchestration for one VM. Read the main repository's OPERATIONS document
 first; this runbook covers only what this topology looks like and the exact
 provisioning steps.
 
-**Pinned release: v0.1.0** (digest in `quadlet/artifactflow-release.image`).
+**Pinned release: v0.2.1** (digest in `quadlet/artifactflow-release.image`).
 The application is never built here, every app-role unit runs the release
 image from GHCR by digest. The image parser is the one locally built
 app-component: the release publishes no parser image, so it is built from the
@@ -199,7 +199,7 @@ systemctl --user daemon-reload
    podman exec -it artifactflow-postgres psql -U artifactflow_app -d artifactflow \
      -c "CREATE ROLE artifactflow_artifact_host LOGIN PASSWORD '<password from artifact-host.env>'" \
      -c "GRANT CONNECT ON DATABASE artifactflow TO artifactflow_artifact_host"
-   curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/v0.1.0/docs/operations/artifact-host-database-grants.sql \
+   curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/v0.2.1/docs/operations/artifact-host-database-grants.sql \
      | podman exec -i artifactflow-postgres psql -U artifactflow_app -d artifactflow -f -
    ```
 
@@ -331,7 +331,7 @@ by hand from the PR diff.
 
 ## PDF uploads (production-capable, default-off, opt-in)
 
-PDF artifacts are **production-capable and off by default** since v0.1.0. There
+PDF artifacts are **production-capable and off by default** since v0.2.1. There
 are two layers: the release itself is hardened (isolated processor, seccomp
 outbound denial, HMAC, hard limits, healthcheck, a separate attested image), and
 each deployment must be verified before enabling PDF (private-only reachability,
