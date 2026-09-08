@@ -1,0 +1,25 @@
+# Give the XLSX socket volume to the image's non-root uid/gid 10003 before the
+# networkless processor starts. Installed only when XLSX is enabled.
+[Unit]
+Description=ArtifactFlow XLSX processor socket volume initialization
+
+[Container]
+ContainerName=artifactflow-xlsx-processor-socket-init
+Image=localhost/artifactflow-xlsx-processor:pinned
+Pull=never
+Network=none
+User=0:0
+Volume=artifactflow-xlsx-socket:/socket
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+AddCapability=CHOWN FOWNER
+Entrypoint=/bin/sh
+Exec=-c "chmod 0755 /socket && chown 10003:10003 /socket"
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

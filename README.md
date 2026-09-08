@@ -12,11 +12,19 @@ orchestration for one VM. Read the main repository's OPERATIONS document
 first; this runbook covers only what this topology looks like and the exact
 provisioning steps.
 
-**Pinned release: v0.1.0** (digest in `quadlet/artifactflow-release.image`).
-The application is never built here, every app-role unit runs the release
-image from GHCR by digest. The image parser is the one locally built
-app-component: the release publishes no parser image, so it is built from the
-pinned release's source (`Dockerfile.image-parser`).
+**Pinned release: v0.2.1** (digest in `quadlet/artifactflow-release.image`).
+The application is never built here: every app-role unit runs the release
+image from GHCR by digest. The image parser is built from the pinned release's
+source (`Dockerfile.image-parser`). XLSX and DOCX use the published immutable
+images in `processor-images.lock`. PDF uses a small local socket adapter over
+the published PDF image, adding the same source revision's socket launcher and
+healthcheck (`Dockerfile.pdf-processor`). The upstream attestation covers the
+adapter's base, not the resulting locally built image.
+
+> **Availability is lock-driven:** an empty processor value means the pinned
+> application release did not publish that format. The installer omits its
+> prompt and an explicit enable flag fails closed until a release bump supplies
+> the immutable digest.
 
 ## Scope and status
 
@@ -31,13 +39,14 @@ pinned release's source (`Dockerfile.image-parser`).
 - **New here?** `GUIDE.html` is the short, friendly walkthrough; this README is
   the full reference. Security model and reporting: `SECURITY.md`. License: MIT
   (`LICENSE`).
-- **Supported OS:** any systemd distribution with Podman >= 5.0. The commands
+- **Supported host:** native **amd64 Linux**, systemd, cgroups v2, and Podman
+  >= 5.0. The published v0.2.1 images are amd64; ARM hosts and x86 emulation
+  cannot establish the native processor containment contract. The commands
   below use Debian/Ubuntu package names.
 
 ## Shape
 
-Unlike the Railway deployment, nothing forces a deviation from the reference
-topology, this *is* the reference topology from OPERATIONS.md:
+This kit applies the release's runtime contract to one VM:
 
 - **nginx terminates TLS only.** Each container runs its own Caddy/FrankenPHP
   web server; nginx proxies two hostnames to two loopback ports and sets the
@@ -65,37 +74,42 @@ topology, this *is* the reference topology from OPERATIONS.md:
   (`docs/operations/artifact-host-database-grants.sql` at the pinned release
   tag) allows: page/version/share reads, `UPDATE (updated_at)` for its lock
   paths, and the separate artifact rate-limit tables.
-- **Isolated image parser.** The app role reaches the parser over an
-  `Internal=true` network with no external route; the parser holds only its
-  shared secret, and every other role pins that secret empty (their boot gate
-  rejects a non-empty value).
-- **Single digest pin.** `quadlet/artifactflow-release.image` is the one
-  place the release digest lives; all five app-image units reference it.
+- **Isolated image parser.** The app reaches it through a private Unix socket
+  with `Network=none`. Each parser has its own socket volume. The app joins
+  socket GIDs 10001–10004 through separate Quadlet `GroupAdd=` entries;
+  other roles receive no socket mount or connection credential. Sockets use
+  mode `0660`.
+- **One coherent release lock.** `quadlet/artifactflow-release.image` pins the
+  application and `processor-images.lock` pins each independently published
+  document processor from the same tag. The installer rejects a mismatched
+  tag, missing required processor, or non-digest image reference.
 
 ## Service map
 
 | Unit | Role | Image | Port (loopback) | Volumes |
 | --- | --- | --- | --- | --- |
-| `artifactflow-app` | `app` | release digest | `127.0.0.1:8080` | storage rw, db-ca ro |
+| `artifactflow-app` | `app` | release digest | `127.0.0.1:8080` | storage rw, db-ca + processor sockets ro |
 | `artifactflow-artifact-host` | `artifact-host` | release digest | `127.0.0.1:8081` | storage **ro**, db-ca ro |
 | `artifactflow-worker` | `worker` | release digest | none | db-ca ro |
 | `artifactflow-scheduler` | `scheduler` | release digest | none | db-ca ro |
 | `artifactflow-storage-init` | one-shot init | release digest | none | storage rw |
 | `artifactflow-postgres` | database | local build | none (network-internal) | `artifactflow-db` |
-| `artifactflow-image-parser` | image parser | local build | none (internal network) | none |
-| `artifactflow-pdf-processor` | PDF processor (opt-in) | local build | none (`Network=none`) | pdf-socket rw |
-| `artifactflow-pdf-processor-socket-init` | one-shot init (opt-in) | local build | none | pdf-socket rw |
+| `artifactflow-image-parser` | image parser | local build | none (`Network=none`) | image-socket rw |
+| `artifactflow-pdf-processor` | PDF processor (opt-in) | local socket adapter | none (`Network=none`) | pdf-socket rw |
+| `artifactflow-xlsx-processor` | XLSX processor (opt-in) | release digest | none (`Network=none`) | xlsx-socket rw |
+| `artifactflow-docx-processor` | DOCX processor (opt-in; requires PDF) | release digest | none (`Network=none`) | docx-socket rw |
+| `artifactflow-*-processor-socket-init` | one-shot socket owners (opt-in) | matching processor | none | matching socket rw |
 
-The two PDF units and their shared `artifactflow-pdf-socket` volume exist only
-when PDF is enabled (installer opt-in). Networks: `artifactflow` (app,
-artifact-host, worker, scheduler, postgres; DNS by container name) and
-`artifactflow-parser` (`Internal=true`, parser + app only). The PDF processor
-uses **no network** (`Network=none`); it is reached only over a Unix socket on
-the shared volume.
+Each document processor and its initializer is installed only when enabled.
+The image parser and its initializer are always installed. Application roles
+and PostgreSQL join `artifactflow`; all parsers use `Network=none`. The old
+`artifactflow-parser` network definition is retained for older installations,
+but no current container joins it.
 
 ## Prerequisites
 
-1. A VM with **Podman ≥ 5.0** (Quadlet `.image` units, pasta networking),
+1. A native **amd64 Linux VM** with cgroups v2 and **Podman ≥ 5.0** (Quadlet
+   `.image` units, pasta networking),
    nginx, and certbot (`python3-certbot-nginx`). Any systemd distribution
    works; package names below are Debian/Ubuntu.
 2. Two DNS records pointing at the VM: the app hostname (e.g.
@@ -106,7 +120,8 @@ the shared volume.
    boot gate refuses `MAIL_MAILER=log` in production; a deliverable transport
    is a first-boot requirement (invitations and password resets are mail).
 4. The GitHub CLI wherever you verify releases (can be your workstation).
-   Verify the pinned image before first use and after every digest bump:
+   Verify the application and every enabled processor before first use and
+   after every digest bump:
 
    ```sh
    gh attestation verify \
@@ -115,6 +130,10 @@ the shared volume.
      --signer-workflow Gadsotek/artifactflow/.github/workflows/release.yml \
      --predicate-type https://slsa.dev/provenance/v1
    ```
+
+   Processor references come from `processor-images.lock`; use the same command
+   with its complete `ghcr.io/...@sha256:...` value. The installer verifies
+   them automatically when `gh` is present.
 
    The signer-workflow pin matters: `--repo` alone accepts an attestation
    from any workflow in the repository, not just the release pipeline.
@@ -136,7 +155,33 @@ chmod 0700 /etc/artifactflow
 
 As `artifactflow` (note: over ssh, `systemctl --user` needs
 `export XDG_RUNTIME_DIR=/run/user/$(id -u)` in some setups), from a clone of
-this repository:
+this repository, the recommended path is:
+
+```sh
+./install.sh
+```
+
+The guided installer offers every processor published by the pinned release.
+All default to off; use `--enable-pdf`, `--enable-xlsx`, or `--enable-docx` for
+an explicit non-interactive format selection (DOCX includes PDF). It preserves
+existing secrets unless `--reconfigure` is supplied.
+
+To enable all three document formats on a new or existing installation:
+
+```sh
+./install.sh --enable-xlsx --enable-docx
+```
+
+DOCX includes PDF. The installer refreshes processor containers and both HTTP
+origins before its live doctor check. Existing keys are preserved. Never use
+`--reconfigure` on a populated installation: it rotates encryption keys and
+database credentials.
+
+The manual configuration equivalent starts with:
+
+> The manual path below leaves all document processors disabled. Use the guided
+> installer to enable one; it validates the release lock, generates the correct
+> isolated secret pair, prepares the pinned image, and installs only its units.
 
 ```sh
 # Configuration
@@ -144,11 +189,11 @@ install -m 0600 env/app.env.example           /etc/artifactflow/app.env
 install -m 0600 env/postgres.env.example      /etc/artifactflow/postgres.env
 install -m 0600 env/parser.env.example        /etc/artifactflow/parser.env
 install -m 0600 env/artifact-host.env.example /etc/artifactflow/artifact-host.env
-install -m 0600 env/pdf-processor.env.example /etc/artifactflow/pdf-processor.env
 # ...fill in app.env, postgres.env, parser.env, and artifact-host.env
 # (secrets, hostnames, SMTP). The image-parser secret is one value in two
 # places: IMAGE_PARSER_SHARED_SECRET in app.env and in parser.env.
-# pdf-processor.env stays empty until the PDF release.
+# The guided installer creates a processor env file only when its format is
+# explicitly enabled.
 
 # Local database image
 podman build -f Dockerfile.postgres -t localhost/artifactflow-postgres:17 .
@@ -156,9 +201,13 @@ podman build -f Dockerfile.postgres -t localhost/artifactflow-postgres:17 .
 # Image parser, built from the pinned release source
 podman build -f Dockerfile.image-parser -t localhost/artifactflow-image-parser:pinned .
 
-# Quadlet units
+# Quadlet units. The guided installer copies only explicitly enabled processor
+# units; do the same for a manual installation.
 mkdir -p ~/.config/containers/systemd
-cp quadlet/* ~/.config/containers/systemd/
+cp quadlet/artifactflow-{app,artifact-host,image-parser,image-parser-socket-init,postgres,scheduler,storage-init,worker}.container \
+   quadlet/artifactflow.network \
+   quadlet/artifactflow-release.image \
+   ~/.config/containers/systemd/
 systemctl --user daemon-reload
 ```
 
@@ -199,7 +248,7 @@ systemctl --user daemon-reload
    podman exec -it artifactflow-postgres psql -U artifactflow_app -d artifactflow \
      -c "CREATE ROLE artifactflow_artifact_host LOGIN PASSWORD '<password from artifact-host.env>'" \
      -c "GRANT CONNECT ON DATABASE artifactflow TO artifactflow_artifact_host"
-   curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/v0.1.0/docs/operations/artifact-host-database-grants.sql \
+   curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/v0.2.1/docs/operations/artifact-host-database-grants.sql \
      | podman exec -i artifactflow-postgres psql -U artifactflow_app -d artifactflow -f -
    ```
 
@@ -256,14 +305,21 @@ systemctl --user daemon-reload
 
 ## Upgrades
 
+**Upgrading from this kit's v0.1.0 pin:** after updating this repository, run
+`./install.sh --no-admin` once (add `--enable-xlsx --enable-docx` if desired).
+It preserves the existing keys and changes the obsolete image-parser TCP
+configuration to the release's required Unix socket. `deploy.sh` refuses the
+old transport before restarting services. Do not use `--reconfigure`.
+
 1. Read the release notes; a release that introduces new required
    configuration fails its boot gate on deploy and restart-loops with the
    failing check named in the journal, add the new variables/units first.
-2. `gh attestation verify` the new digest (command under Prerequisites).
-3. Edit the digest in `quadlet/artifactflow-release.image` (and the pinned
-   release comment). Update `ARTIFACTFLOW_COMMIT` and the php base digest in
-   `Dockerfile.image-parser` from the new tag, and rebuild
-   `localhost/artifactflow-image-parser:pinned`.
+2. Verify the application and every published PDF/XLSX/DOCX digest from the
+   release (command under Prerequisites).
+3. Edit the application digest in `quadlet/artifactflow-release.image`, all
+   processor references in `processor-images.lock`, and both pinned-release
+   comments. Update `ARTIFACTFLOW_COMMIT` and the PHP base digest in
+   `Dockerfile.image-parser` from the new tag.
 4. Copy the changed quadlet files to `~/.config/containers/systemd/`, then:
 
    ```sh
@@ -285,15 +341,17 @@ Both halves are automated while keeping a human between them:
 
 - `.github/workflows/release-watch.yml` (active once this repo lives on
   GitHub with "Allow GitHub Actions to create and approve pull requests"
-  enabled) checks daily for a new release, verifies its attestation, and
-  opens the digest-bump PR. The PR body carries the release link plus diffs
+  enabled) checks daily for a new release, requires and verifies all four
+  image attestations, and opens the coherent digest-bump PR. The PR body
+  carries the release link, all image references, plus diffs
   of the artifact-host grants manifest and `.env.production.example` between
   the tags, so new required configuration is visible before merge. A failed
   attestation produces no PR.
 - `./deploy.sh`, run on the VM as `artifactflow`, applies the merged state:
-  pull, re-verify the attestation (or `--no-verify` where gh is absent),
-  rebuild the parser image, install quadlets, restart all units in order,
-  and wait for both HTTP surfaces to report healthy.
+  pull, re-verify the application and enabled processor attestations (or
+  `--no-verify` only after external verification), rebuild the parser image,
+  install Quadlets, restart enabled processors before application roles, and
+  wait for all enabled processors and both HTTP surfaces to report healthy.
 
 Deliberately NOT automated: nothing deploys on merge. The VM changes only
 when an operator runs `./deploy.sh`, and grants-manifest changes are applied
@@ -301,20 +359,24 @@ by hand from the PR diff.
 
 ## Operations notes
 
-- **Backups.** Documented ordering: database dump first, then artifact
-  files.
+- **Backups.** Quiesce application writes, uploads, and retention cleanup for
+  both exports. Dump the database first, then artifact files, and keep writes
+  paused until both finish. A deletion between the dump and storage export
+  can otherwise leave the backup missing a referenced blob. Test restoration
+  into a separate instance.
 
   ```sh
   podman exec artifactflow-postgres pg_dump -U artifactflow_app -Fc artifactflow > backup.dump
   podman volume export artifactflow-storage > storage.tar
   ```
 
-  `APP_KEY`, `ARTIFACT_URL_SIGNING_KEY`, `IMAGE_PARSER_SHARED_SECRET`, and
-  the DB CA key live only in `/etc/artifactflow` and the postgres volume:
+  `APP_KEY`, `ARTIFACT_URL_SIGNING_KEY`, `IMAGE_PARSER_SHARED_SECRET`, every
+  enabled processor secret, and the DB CA key live only in
+  `/etc/artifactflow` and the postgres volume:
   keep an out-of-band copy of the secrets in a password manager; losing
-  `APP_KEY` makes TOTP secrets and encrypted data unrecoverable. The parser
-  secret protects no data at rest; rotate it in app.env and parser.env
-  together or image writes fail closed until they match.
+  `APP_KEY` makes TOTP secrets and encrypted data unrecoverable. The
+  parser/processor secrets protect no data at rest; rotate each matching pair
+  together or that format's writes fail closed until they match.
 - **Logs** go to the user journal: `journalctl --user -u artifactflow-app`
   (likewise per unit). `LOG_CHANNEL=stderr` keeps Laravel logs there too.
 - **Scaling.** Keep one replica per role. The reference admission design
@@ -329,7 +391,7 @@ by hand from the PR diff.
   makes the immediate peer trusted, which is safe only while that peer can
   only be nginx.
 
-## PDF uploads (production-capable, default-off, opt-in)
+## PDF, XLSX, and DOCX uploads (production-capable, default-off)
 
 PDF artifacts are **production-capable and off by default** since v0.1.0. There
 are two layers: the release itself is hardened (isolated processor, seccomp
@@ -340,31 +402,41 @@ proof, `artifactflow:doctor`, released Safari/iOS check, final review). See the
 release's `RELEASE-CHECKLIST.md` and `docs/OPERATIONS.md` "Production PDF
 processor".
 
-This kit wires PDF as an **installer opt-in**. `install.sh` asks once (default
-no); choosing yes generates a dedicated `PDF_PROCESSOR_SHARED_SECRET`, sets the
-app-role values, builds the processor image (`build-pdf-processor.sh`, from the
-pinned release source via the release's own Dockerfile), and installs and starts
-the processor units. Choosing no leaves `PDF_PROCESSOR_ENABLED=false` and no
-processor container. Enable it later with `./install.sh --reconfigure`.
+Releases that publish XLSX and DOCX add the same explicit opt-in at two distinct
+boundaries: XLSX projects an exact private workbook into a bounded typed
+manifest, while DOCX converts an exact private original with networkless
+LibreOffice and requires the output to pass the independently credentialed PDF
+processor before the derivative is accepted. Empty Office image-lock entries
+are deliberate and make those formats unavailable for that application pin.
 
-How the container is set up here already satisfies the deployment-side
-requirements by construction:
+This kit wires each format as an explicit installer opt-in. `install.sh` asks
+separately (default no), generates a distinct processor secret, verifies and
+pulls the release image by digest, and installs only the selected units. Use
+`--enable-pdf`, `--enable-xlsx`, or `--enable-docx` later without rotating
+unrelated secrets. DOCX automatically enables its required PDF chain. A format
+whose image is absent from the pinned release fails closed before enablement.
 
-- **Transport:** a **Unix domain socket over a shared volume** with
-  `Network=none`, so there is no processor TCP port and no external route. The
-  app mounts the socket read-only; `PDF_PROCESSOR_URL` stays `http://localhost`
-  and the real transport is the socket. `artifactflow-pdf-processor-socket-init`
-  gives the volume to the processor's non-root user first.
-- **One replica, hard limits:** a single processor unit, `--memory=512m
-  --cpus=1.0`, `PidsLimit=32`, read-only root filesystem, all capabilities
-  dropped, `no-new-privileges`, and a 32 MiB noexec/nosuid `/tmp`.
-- **Secret isolation:** the processor secret lives only in app.env and
-  pdf-processor.env; artifact-host, worker, and scheduler pin it empty, and
-  worker/scheduler pin `PDF_PROCESSOR_ENABLED=false`. artifact-host receives the
-  enabled flag for presentation only, with empty connection values.
+The configuration encodes the following restrictions. Verify their effective
+behavior on the actual Linux host before production enablement:
 
-What the kit cannot do for you is the **verification**: after enabling, complete
-the "PDF enablement gate" in `TESTING.md` (startup denial-log check, doctor,
-released Safari/iOS test, final review) before relying on PDF in production. The
-Java/PDFBox processor image is heavier than the PHP image parser and downloads
-its dependencies at build time.
+- **Transport:** each format has a separate **Unix domain socket over a named
+  volume** with `Network=none`, no TCP port, and no external route. The app
+  mounts sockets read-only; `*_PROCESSOR_URL=http://localhost` names cURL's
+  nominal origin while the socket is the actual transport.
+- **One replica, hard limits:** PDF uses 512 MiB / 1 CPU / 32 PIDs / 32 MiB
+  tmpfs; XLSX uses 384 MiB / 1 CPU / 32 PIDs / 64 MiB tmpfs; DOCX uses
+  768 MiB / 1 CPU / 128 PIDs / 192 MiB tmpfs plus `nofile=256:256`. Every
+  processor is non-root, read-only, capability-free, and `no-new-privileges`.
+- **Secret and role isolation:** every processor has a unique secret present
+  only in app.env and its own processor env. The artifact host inherits only
+  presentation flags with empty connection fields; worker and scheduler pin
+  every processor flag false and every processor connection field empty.
+- **Format boundary:** XLSX returns only the bounded canonical typed manifest.
+  DOCX returns a PDF to the app, which must pass the separately credentialed
+  PDFBox DOCX-preview profile before the derivative may be stored or served.
+
+What the kit cannot do for you is the **deployment evidence**. Complete every
+applicable gate in `TESTING.md`: image/SBOM review, effective network and
+resource inspection, signed live doctor challenge, hostile-file and browser
+checks, released Safari/iOS, and final evidence-first review. DOCX is not ready
+unless both its LibreOffice processor and downstream PDF processor pass.

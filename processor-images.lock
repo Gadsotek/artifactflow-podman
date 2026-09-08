@@ -1,0 +1,8 @@
+# Immutable processor images published by the ArtifactFlow release named below.
+# Empty values mean that the pinned release did not publish that processor; the
+# installer and deploy script fail closed if an operator tries to enable it.
+#
+# Pinned release: ArtifactFlow v0.2.1
+PDF_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-pdf-processor@sha256:9ea76315baa6feaf34f726e420c65be9945bb6457c09b56a6f4e3d97c211cd9f
+XLSX_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-xlsx-processor@sha256:710245368f7a9ff5c9fcba43e91ae0109518cb5d59eb46aaaeedfe5d0742e1cf
+DOCX_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-docx-processor@sha256:7d5f83779b2552b3eb8c1c366b8648d3d2967300c47ca5951a73cd7b173ae4ce

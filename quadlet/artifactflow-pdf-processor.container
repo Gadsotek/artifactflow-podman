@@ -1,24 +1,30 @@
 # PDF processor (Java/PDFBox). Reached by the app ONLY over a Unix domain socket
-# on a shared volume: Network=none, no TCP port. Built from the pinned release
-# source with build-pdf-processor.sh (the release publishes no processor image).
+# on a shared volume: Network=none, no TCP port. The installer pulls the
+# published TCP image by its immutable digest in processor-images.lock,
+# verifies its provenance when gh is available, and builds the local socket
+# adapter referenced below. Its matching release launcher keeps PDFBox's
+# process-creation filter; Network=none supplies network containment.
 #
 # PDF is OPT-IN and default-off. The installer copies and starts this unit only
 # when you enable PDF, and enabling PDF in production requires completing the
 # per-deployment production-enablement gate in the release's RELEASE-CHECKLIST.md
 # (outbound-denial proof, private-only reachability, hard limits, released
-# Safari/iOS check, final security review). See README "PDF uploads".
+# Safari/iOS check, final security review). See README "PDF, XLSX, and DOCX
+# uploads".
 #
 # Reference restrictions from OPERATIONS: one replica, non-root, read-only root
 # filesystem, all capabilities dropped, no-new-privileges, no-exec /tmp, and
 # 512 MiB / 1 CPU / 32 PIDs. Do not relax them or add replicas.
 [Unit]
 Description=ArtifactFlow PDF processor
-Wants=artifactflow-pdf-processor-socket-init.service
+Requires=artifactflow-pdf-processor-socket-init.service
 After=artifactflow-pdf-processor-socket-init.service
+Before=artifactflow-app.service
 
 [Container]
 ContainerName=artifactflow-pdf-processor
 Image=localhost/artifactflow-pdf-processor:pinned
+Pull=never
 Network=none
 EnvironmentFile=/etc/artifactflow/pdf-processor.env
 Environment=PDF_PROCESSOR_MAX_CLOCK_SKEW_SECONDS=120 PDF_PROCESSOR_SOCKET_PATH=/run/artifactflow/pdf-processor/processor.sock
@@ -30,10 +36,10 @@ DropCapability=ALL
 PidsLimit=32
 PodmanArgs=--memory=512m --cpus=1.0
 HealthCmd=php /srv/pdf-processor-spike/healthcheck.php
-HealthInterval=30s
+HealthInterval=1m
 HealthTimeout=15s
-HealthRetries=3
-HealthStartPeriod=10s
+HealthRetries=6
+HealthStartPeriod=30s
 
 [Service]
 Restart=always
@@ -41,3 +47,4 @@ RestartSec=5
 
 [Install]
 WantedBy=default.target
+RequiredBy=artifactflow-app.service

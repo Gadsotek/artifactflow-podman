@@ -95,20 +95,20 @@
 cd artifactflow-podman
 ./install.sh</pre>
       <p class="soft">The script asks for your two hostnames and mail transport, generates all passwords and keys itself, builds and starts every service, prepares the database, and offers to create the first administrator. If something goes wrong it tells you exactly what and where to look.</p>
-      <p class="soft">It also asks whether to enable <b>PDF artifacts</b>. This is optional and off by default. If unsure, leave it off, you can enable it later with <code>./install.sh --enable-pdf</code>.</p>
+      <p class="soft">It also asks separately about <b>PDF, Excel XLSX, and Word DOCX artifacts</b>. All are optional and off by default. To enable all three, run <code>./install.sh --enable-xlsx --enable-docx</code>; DOCX includes PDF. The same command can extend an existing installation while preserving its keys. Individual <code>--enable-pdf</code>, <code>--enable-xlsx</code>, and <code>--enable-docx</code> flags are also available.</p>
       <details class="acc">
-        <summary>Enabled PDF? Here is what to do extra</summary>
+        <summary>Enabled a document format? Here is what to do extra</summary>
         <div class="acc-body">
-          <p>The installer already sets the PDF processor up safely: no network, one instance, strict memory and process limits. Before you rely on PDF in production, confirm the rest once:</p>
+          <p>The installer gives each selected format its own release-pinned, networkless processor, Unix socket, secret, and resource limits. Before relying on it in production, confirm the remaining evidence once:</p>
           <ol>
-            <li>The <code>artifactflow-pdf-processor</code> service is healthy (<code>systemctl --user status artifactflow-pdf-processor</code>).</li>
-            <li>Its startup log shows the containment filter active and the healthcheck passes (<code>journalctl --user -u artifactflow-pdf-processor</code>).</li>
-            <li>Inside the app container, <code>php artisan artifactflow:doctor</code> reports no PDF error.</li>
-            <li>Upload a test PDF: text is extracted and it renders from the artifact hostname.</li>
-            <li>Do the preview check on Safari/iOS.</li>
+            <li>Every enabled <code>artifactflow-&lt;format&gt;-processor</code> is healthy and its immutable image provenance/SBOM are verified.</li>
+            <li>Container inspection confirms <code>Network=none</code>, one instance, read-only filesystem, dropped capabilities, and the documented CPU, memory, PID, file, and temporary-storage ceilings.</li>
+            <li>Inside the app container, <code>php artisan artifactflow:doctor</code> passes the fresh signed processor checks.</li>
+            <li>Try a rejected hostile file followed by an accepted file. XLSX preview must use only the typed grid manifest; DOCX preview must use only the independently PDFBox-validated PDF.</li>
+            <li>Run the required Chromium, Firefox, WebKit, and released Safari/iOS checks.</li>
             <li>Write down a short note that the above passed (your final sign-off).</li>
           </ol>
-          <p class="soft">Full checklist with the exact commands: <code>TESTING.md</code>, section "PDF enablement gate". Background on why: <code>README.md</code>, "PDF uploads".</p>
+          <p class="soft">Use a native <b>amd64 Linux VM</b>: the published images and PDF seccomp checks require it. The installer automatically builds the PDF socket adapter from its attested base and matching release source. Full checklist: <code>TESTING.md</code>, “Document processor gate”. Background: <code>README.md</code>, “PDF, XLSX, and DOCX uploads”. A format with an empty image-lock entry fails closed on enablement.</p>
         </div>
       </details>
     </div>

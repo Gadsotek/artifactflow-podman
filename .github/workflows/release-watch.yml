@@ -3,17 +3,18 @@
 # VM. This workflow never touches the VM.
 #
 # What the PR contains:
-#   - quadlet/artifactflow-release.image: new digest + pinned-release comment
+#   - quadlet/artifactflow-release.image: new application digest + release
+#   - processor-images.lock: PDF/XLSX/DOCX digests from that same release
 #   - Dockerfile.image-parser: new tag commit SHA + php base digest synced
 #     from the release's root Dockerfile
-#   - every other pinned-tag reference in the repo (README, GUIDE)
+#   - deployment pin references in Dockerfile.image-parser and README
 #   - PR body: attestation verdict, and diffs of the artifact-host grants
 #     manifest and .env.production.example between the old and new tags, so
 #     new required configuration is visible before merge.
 #
-# The new digest is attestation-verified (SLSA provenance, release workflow
-# signer) BEFORE the PR is opened; a failed verification fails the run and no
-# PR appears.
+# All four new digests are attestation-verified (SLSA provenance, release
+# workflow signer) BEFORE the PR is opened. A missing processor image or failed
+# verification fails the run and no mixed-release PR appears.
 #
 # Setup once, after pushing this repo to GitHub:
 #   Settings -> Actions -> General -> "Allow GitHub Actions to create and
@@ -32,7 +33,6 @@ permissions:
 
 env:
   APP_REPO: Gadsotek/artifactflow
-  IMAGE: ghcr.io/gadsotek/artifactflow
 
 jobs:
   watch:
@@ -50,7 +50,9 @@ jobs:
           cur_tag="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' quadlet/artifactflow-release.image)"
           cur_digest="$(sed -n 's|^Image=ghcr.io/gadsotek/artifactflow@sha256:\([0-9a-f]*\)$|\1|p' quadlet/artifactflow-release.image)"
           cur_commit="$(sed -n 's/^ARG ARTIFACTFLOW_COMMIT=\([0-9a-f]*\)$/\1/p' Dockerfile.image-parser)"
+          lock_tag="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' processor-images.lock)"
           [ -n "$cur_tag" ] && [ -n "$cur_digest" ] && [ -n "$cur_commit" ]
+          [ "$lock_tag" = "$cur_tag" ]
 
           new_tag="$(gh release view --repo "$APP_REPO" --json tagName --jq .tagName)"
           if [ "$new_tag" = "$cur_tag" ]; then
@@ -64,29 +66,42 @@ jobs:
             exit 0
           fi
 
-          new_digest="$(gh release view "$new_tag" --repo "$APP_REPO" --json body --jq .body \
-            | grep -oE 'sha256:[0-9a-f]{64}' | head -1 | cut -d: -f2)"
-          [ -n "$new_digest" ]
-
-          # Hard gate: provenance must verify before any PR is opened.
-          gh attestation verify \
-            "oci://$IMAGE@sha256:$new_digest" \
-            --repo "$APP_REPO" \
-            --signer-workflow "$APP_REPO/.github/workflows/release.yml" \
-            --predicate-type https://slsa.dev/provenance/v1
-
+          gh release view "$new_tag" --repo "$APP_REPO" --json body --jq .body > /tmp/release-body.md
+          new_app_ref="$(grep -oE 'ghcr.io/gadsotek/artifactflow@sha256:[0-9a-f]{64}' /tmp/release-body.md | head -1)"
+          new_pdf_ref="$(grep -oE 'ghcr.io/gadsotek/artifactflow-pdf-processor@sha256:[0-9a-f]{64}' /tmp/release-body.md | head -1)"
+          new_xlsx_ref="$(grep -oE 'ghcr.io/gadsotek/artifactflow-xlsx-processor@sha256:[0-9a-f]{64}' /tmp/release-body.md | head -1)"
+          new_docx_ref="$(grep -oE 'ghcr.io/gadsotek/artifactflow-docx-processor@sha256:[0-9a-f]{64}' /tmp/release-body.md | head -1)"
+          [ -n "$new_app_ref" ] && [ -n "$new_pdf_ref" ]
+          [ -n "$new_xlsx_ref" ] && [ -n "$new_docx_ref" ]
+          new_digest="${new_app_ref##*:}"
           new_commit="$(gh api "repos/$APP_REPO/commits/$new_tag" --jq .sha)"
+
+          # Hard gate: every image must verify before any PR is opened.
+          for ref in "$new_app_ref" "$new_pdf_ref" "$new_xlsx_ref" "$new_docx_ref"; do
+            gh attestation verify \
+              "oci://$ref" \
+              --repo "$APP_REPO" \
+              --signer-workflow "$APP_REPO/.github/workflows/release.yml" \
+              --source-digest "$new_commit" \
+              --predicate-type https://slsa.dev/provenance/v1
+          done
+
           new_php_base="$(curl -fsSL "https://raw.githubusercontent.com/$APP_REPO/$new_tag/Dockerfile" \
             | grep -E '^FROM php:[^ ]+ AS image-parser$' | awk '{print $2}')"
           [ -n "$new_commit" ] && [ -n "$new_php_base" ]
 
           # Apply the bump.
           sed -i "s/$cur_digest/$new_digest/" quadlet/artifactflow-release.image
+          sed -i "s/Pinned release: ArtifactFlow $cur_tag/Pinned release: ArtifactFlow $new_tag/" quadlet/artifactflow-release.image
+          sed -i "s/Pinned release: ArtifactFlow $cur_tag/Pinned release: ArtifactFlow $new_tag/" processor-images.lock
+          sed -i "s|^PDF_PROCESSOR_IMAGE=.*|PDF_PROCESSOR_IMAGE=$new_pdf_ref|" processor-images.lock
+          sed -i "s|^XLSX_PROCESSOR_IMAGE=.*|XLSX_PROCESSOR_IMAGE=$new_xlsx_ref|" processor-images.lock
+          sed -i "s|^DOCX_PROCESSOR_IMAGE=.*|DOCX_PROCESSOR_IMAGE=$new_docx_ref|" processor-images.lock
           sed -i "s/$cur_commit/$new_commit/g" Dockerfile.image-parser
           sed -i -E "s|^FROM php:[^ ]+|FROM $new_php_base|" Dockerfile.image-parser
-          for f in $(git grep -l "$cur_tag" -- . ':!.github'); do
-            sed -i "s/$cur_tag/$new_tag/g" "$f"
-          done
+          sed -i "s/$cur_tag/$new_tag/g" Dockerfile.image-parser
+          sed -i "s/\*\*Pinned release: $cur_tag\*\*/**Pinned release: $new_tag**/" README.md
+          sed -i "s|artifactflow/$cur_tag/docs/operations/artifact-host-database-grants.sql|artifactflow/$new_tag/docs/operations/artifact-host-database-grants.sql|" README.md
 
           # Operator-facing diffs for the PR body.
           raw="https://raw.githubusercontent.com/$APP_REPO"
@@ -100,7 +115,11 @@ jobs:
           {
             echo "Bumps the pinned release from $cur_tag to $new_tag."
             echo
-            echo "- Digest: \`sha256:$new_digest\` (attestation verified in this run: SLSA provenance, release-workflow signer)."
+            echo "- Application: \`$new_app_ref\`"
+            echo "- PDF processor: \`$new_pdf_ref\`"
+            echo "- XLSX processor: \`$new_xlsx_ref\`"
+            echo "- DOCX processor: \`$new_docx_ref\`"
+            echo "- All four attestations verified in this run: SLSA provenance, release-workflow signer."
             echo "- Parser source pin: \`$new_commit\`, php base \`$new_php_base\`."
             echo "- Release notes: https://github.com/$APP_REPO/releases/tag/$new_tag"
             echo
@@ -126,7 +145,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
           git add -A
-          git commit -m "Bump pinned release to $new_tag"
+          git commit --signoff -m "Bump pinned release to $new_tag"
           git push origin "$branch"
           gh pr create \
             --title "Bump pinned release to $new_tag" \

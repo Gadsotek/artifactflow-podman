@@ -1,0 +1,28 @@
+# One-shot initializer for the shared image parser socket volume. A mounted named volume
+# shadows the image's own /run/artifactflow/image-parser directory with a
+# root-owned empty directory, so the processor's non-root user (uid/gid 10001)
+# could not create its Unix socket there. This gives the volume directory to
+# that user before the parser starts. The app requires this parser at startup.
+[Unit]
+Description=ArtifactFlow image parser processor socket volume initialization
+
+[Container]
+ContainerName=artifactflow-image-parser-socket-init
+Image=localhost/artifactflow-image-parser:pinned
+Pull=never
+Network=none
+User=0:0
+Volume=artifactflow-image-socket:/socket
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+AddCapability=CHOWN FOWNER
+Entrypoint=/bin/sh
+Exec=-c "chmod 0755 /socket && chown 10001:10001 /socket"
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

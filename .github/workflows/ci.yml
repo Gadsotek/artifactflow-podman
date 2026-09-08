@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Processor installer contract
+        run: |
+          bash tests/processor-install-contract.sh
+          python3 tests/deployment-contract.py
+          python3 tests/installer-behavior.py
+
+      - name: ShellCheck
+        run: shellcheck install.sh deploy.sh tests/*.sh
+
+      - name: Generate Quadlets with Podman 5
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" ubuntu:26.04 sh -c '
+            apt-get update -qq && apt-get install -y --no-install-recommends podman bash &&
+            bash /repo/tests/quadlet-generate.sh'
+
+      - name: Verify the release, build local transports, and exercise processors
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTAINER_ENGINE: docker
+        run: |
+          source_commit="$(sed -n 's/^ARG ARTIFACTFLOW_COMMIT=\([0-9a-f]*\)$/\1/p' Dockerfile.image-parser)"
+          app_ref="$(sed -n 's/^Image=//p' quadlet/artifactflow-release.image)"
+          for ref in "$app_ref" $(sed -n 's/^[A-Z]*_PROCESSOR_IMAGE=//p' processor-images.lock); do
+            gh attestation verify "oci://$ref" --repo Gadsotek/artifactflow \
+              --signer-workflow Gadsotek/artifactflow/.github/workflows/release.yml \
+              --source-digest "$source_commit" --predicate-type https://slsa.dev/provenance/v1
+            docker pull "$ref"
+          done
+          pdf_ref="$(sed -n 's/^PDF_PROCESSOR_IMAGE=//p' processor-images.lock)"
+          docker build -f Dockerfile.image-parser -t localhost/artifactflow-image-parser:pinned .
+          docker build -f Dockerfile.pdf-processor \
+            --build-arg "PDF_PROCESSOR_IMAGE=$pdf_ref" \
+            --build-arg "ARTIFACTFLOW_COMMIT=$source_commit" \
+            -t localhost/artifactflow-pdf-processor:pinned .
+          python3 tests/processor-runtime.py

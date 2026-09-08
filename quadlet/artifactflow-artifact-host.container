@@ -7,9 +7,9 @@
 #   - RUN_MIGRATIONS=0: only the app role may migrate, whatever app.env says.
 #   - IMAGE_PARSER_*: empty; the boot gate rejects parser credentials on any
 #     role but app, and this surface must never hold them.
-#   - PDF_PROCESSOR_ url/socket/secret pinned empty; when PDF is enabled this
-#     role inherits PDF_PROCESSOR_ENABLED=true from app.env for presentation
-#     only, and must hold no processor connection values.
+#   - Every processor URL/socket/secret is pinned empty. This role inherits
+#     enabled flags from app.env only for presentation and holds no processor
+#     credential or connection value. DOCX presentation also requires PDF.
 #
 # artifact-host.env loads after app.env and overrides DB_USERNAME/DB_PASSWORD
 # with the restricted artifact-host database role (grant manifest:
@@ -25,7 +25,11 @@ Image=artifactflow-release.image
 Network=artifactflow.network
 EnvironmentFile=/etc/artifactflow/app.env
 EnvironmentFile=/etc/artifactflow/artifact-host.env
-Environment=APP_RUNTIME_ROLE=artifact-host PORT=8081 RUN_MIGRATIONS=0 IMAGE_PARSER_URL= IMAGE_PARSER_SHARED_SECRET= PDF_PROCESSOR_URL= PDF_PROCESSOR_SOCKET_PATH= PDF_PROCESSOR_SHARED_SECRET=
+Environment=APP_RUNTIME_ROLE=artifact-host PORT=8081 RUN_MIGRATIONS=0
+Environment=IMAGE_PARSER_URL= IMAGE_PARSER_SOCKET_PATH= IMAGE_PARSER_SHARED_SECRET=
+Environment=PDF_PROCESSOR_URL= PDF_PROCESSOR_SOCKET_PATH= PDF_PROCESSOR_SHARED_SECRET=
+Environment=XLSX_PROCESSOR_URL= XLSX_PROCESSOR_SOCKET_PATH= XLSX_PROCESSOR_SHARED_SECRET=
+Environment=DOCX_PROCESSOR_URL= DOCX_PROCESSOR_SOCKET_PATH= DOCX_PROCESSOR_SHARED_SECRET=
 PublishPort=127.0.0.1:8081:8081
 Volume=artifactflow-storage:/var/www/html/storage/app:ro
 Volume=/etc/artifactflow/db-ca.pem:/etc/artifactflow/db-ca.pem:ro,z
