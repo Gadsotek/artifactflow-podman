@@ -12,7 +12,7 @@ orchestration for one VM. Read the main repository's OPERATIONS document
 first; this runbook covers only what this topology looks like and the exact
 provisioning steps.
 
-**Pinned release: v0.2.1** (digest in `quadlet/artifactflow-release.image`).
+**Pinned release: v0.3.0** (digest in `quadlet/artifactflow-release.image`).
 The application is never built here: every app-role unit runs the release
 image from GHCR by digest. The image parser is built from the pinned release's
 source (`Dockerfile.image-parser`). XLSX and DOCX use the published immutable
@@ -40,7 +40,7 @@ adapter's base, not the resulting locally built image.
   the full reference. Security model and reporting: `SECURITY.md`. License: MIT
   (`LICENSE`).
 - **Supported host:** native **amd64 Linux**, systemd, cgroups v2, and Podman
-  >= 5.0. The published v0.2.1 images are amd64; ARM hosts and x86 emulation
+  >= 5.0. The published v0.3.0 images are amd64; ARM hosts and x86 emulation
   cannot establish the native processor containment contract. The commands
   below use Debian/Ubuntu package names.
 
@@ -248,7 +248,7 @@ systemctl --user daemon-reload
    podman exec -it artifactflow-postgres psql -U artifactflow_app -d artifactflow \
      -c "CREATE ROLE artifactflow_artifact_host LOGIN PASSWORD '<password from artifact-host.env>'" \
      -c "GRANT CONNECT ON DATABASE artifactflow TO artifactflow_artifact_host"
-   curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/v0.2.1/docs/operations/artifact-host-database-grants.sql \
+   curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/v0.3.0/docs/operations/artifact-host-database-grants.sql \
      | podman exec -i artifactflow-postgres psql -U artifactflow_app -d artifactflow -f -
    ```
 
@@ -304,6 +304,16 @@ systemctl --user daemon-reload
     to confirm the parser path.
 
 ## Upgrades
+
+**Upgrading from v0.2.1 to v0.3.0:** run `./deploy.sh` from the updated kit to
+refresh the application, enabled processors, and local parser/PDF adapter.
+Keep `RUN_MIGRATIONS=1` on the app: the two additive migrations create
+`personal_page_states` and add the installation's MCP token lifetime limits
+before the new app serves traffic. Existing pages, versions, and token
+expirations are retained; the default read/write limits remain 365/90 days.
+No new environment settings or artifact-host database grants are required for
+this upgrade. Processor enablement stays unchanged. See the
+[v0.3.0 release notes](https://github.com/Gadsotek/artifactflow/releases/tag/v0.3.0).
 
 **Upgrading from this kit's v0.1.0 pin:** after updating this repository, run
 `./install.sh --no-admin` once (add `--enable-xlsx --enable-docx` if desired).

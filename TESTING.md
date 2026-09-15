@@ -125,6 +125,14 @@ release and must fail closed on explicit enablement. For every enabled format:
 
 ## Upgrade path
 
+- [ ] Upgrade an existing v0.2.1 installation to v0.3.0 with
+      `RUN_MIGRATIONS=1` on the app. Both new migrations complete before it
+      serves traffic: `personal_page_states` exists and the MCP lifetime
+      settings default to 365/90 days. Existing pages, versions, and token
+      expirations remain intact.
+- [ ] The redesigned Home, favorites, recently opened pages, and Cmd/Ctrl+K
+      navigation work after the upgrade; a saved artifact preview remains on
+      the isolated origin.
 - [ ] Bump the digest in `quadlet/artifactflow-release.image` (or merge a
       `release-watch` PR), run `./deploy.sh`, confirm both HTTP surfaces return
       to healthy.

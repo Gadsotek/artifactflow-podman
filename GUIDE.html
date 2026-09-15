@@ -75,7 +75,7 @@
 <main>
 
   <h1>ArtifactFlow: install it on your server</h1>
-  <p class="sub">No DevOps required. Three steps, and a prepared script does most of it for you.</p>
+  <p class="sub">No DevOps required. Three steps, and a prepared script does most of it for you. Pinned to <a href="https://github.com/Gadsotek/artifactflow/releases/tag/v0.3.0">ArtifactFlow v0.3.0</a>.</p>
 
   <h2>What you need first</h2>
   <div class="need">
@@ -134,6 +134,14 @@ artifacts.example.com      ->  server IP</pre>
 certbot --nginx -d artifacts.example.com</pre>
       <p class="soft">Certbot obtains the padlock (certificate) itself, for free. More in the amber box below.</p>
     </div>
+  </div>
+
+  <h2>Upgrading from v0.2.1</h2>
+  <div class="panel">
+    <p>From your existing clone, as the <code>artifactflow</code> user, run:</p>
+    <pre>./deploy.sh</pre>
+    <p>The script pulls the updated kit and refreshes its pinned images. Keep <code>RUN_MIGRATIONS=1</code> on the app so it applies both v0.3.0 database migrations before serving traffic. Existing artifacts and token expirations are retained.</p>
+    <p>Afterward, check the new Home navigation and a saved preview. Earlier installations should follow the upgrade instructions in <code>README.md</code> first.</p>
   </div>
 
   <h2>Two things worth explaining</h2>
