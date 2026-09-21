@@ -5,7 +5,7 @@
 # After the first start, extract the CA for the app-image units:
 #
 #   podman exec artifactflow-postgres \
-#     cat /var/lib/postgresql/data/certs/root.crt > /etc/artifactflow/db-ca.pem
+#     cat /var/lib/postgresql/data/certs/root.crt > ~/.config/artifactflow/db-ca.pem
 [Unit]
 Description=ArtifactFlow PostgreSQL (TLS, deployment-private CA)
 

@@ -18,7 +18,8 @@ server, top to bottom. Use non-sensitive test content only.
 
 - [ ] `apt install podman nginx python3-certbot-nginx`
 - [ ] `useradd -m -s /bin/bash artifactflow && loginctl enable-linger artifactflow`
-- [ ] `mkdir -p /etc/artifactflow && chown artifactflow:artifactflow /etc/artifactflow && chmod 0700 /etc/artifactflow`
+- [ ] No config-dir root step needed: the installer creates `~/.config/artifactflow`
+      (override with `ARTIFACTFLOW_CONFIG_DIR`) as the app user.
 
 ## Installer (`./install.sh` as the artifactflow user)
 
@@ -26,7 +27,7 @@ server, top to bottom. Use non-sensitive test content only.
 - [ ] Rejects equal app/artifact hostnames.
 - [ ] Rejects empty and placeholder hostnames (`example.com`, `localhost`).
 - [ ] Prompts once for hostnames and mail, generates secrets, writes
-      `/etc/artifactflow/*.env` as mode `0600`.
+      `~/.config/artifactflow/*.env` as mode `0600`.
 - [ ] Application attestation verification runs (with `gh` present) and passes;
       every enabled processor attestation is independently verified.
 - [ ] Postgres becomes healthy; `db-ca.pem` is extracted.

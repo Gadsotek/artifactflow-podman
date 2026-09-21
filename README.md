@@ -65,11 +65,11 @@ This kit applies the release's runtime contract to one VM:
   `DB_SSLMODE=verify-full`; `Dockerfile.postgres` keeps a deployment-private
   CA on the data volume and issues a server certificate for the container's
   DNS name each boot. The CA certificate is extracted once to
-  `/etc/artifactflow/db-ca.pem` and bind-mounted read-only into every
+  `~/.config/artifactflow/db-ca.pem` and bind-mounted read-only into every
   app-image container, a VM has file mounts, so no `DB_CA_PEM` indirection
   is needed.
 - **Restricted artifact-host database role.** The artifact-host unit overrides
-  `DB_USERNAME`/`DB_PASSWORD` via `/etc/artifactflow/artifact-host.env` with a
+  `DB_USERNAME`/`DB_PASSWORD` via `~/.config/artifactflow/artifact-host.env` with a
   standalone role granted only what the reviewed manifest
   (`docs/operations/artifact-host-database-grants.sql` at the pinned release
   tag) allows: page/version/share reads, `UPDATE (updated_at)` for its lock
@@ -142,16 +142,17 @@ but no current container joins it.
 
 ## Install
 
-As root:
+As root (host prep only, no config directory needed):
 
 ```sh
 apt install podman nginx python3-certbot-nginx
 useradd -m -s /bin/bash artifactflow
 loginctl enable-linger artifactflow          # user services survive logout & start at boot
-mkdir -p /etc/artifactflow
-chown artifactflow:artifactflow /etc/artifactflow
-chmod 0700 /etc/artifactflow
 ```
+
+The config directory is created by the installer under the app user's home
+(`~/.config/artifactflow`, override with `ARTIFACTFLOW_CONFIG_DIR`), so no root
+step is needed for it.
 
 As `artifactflow` (note: over ssh, `systemctl --user` needs
 `export XDG_RUNTIME_DIR=/run/user/$(id -u)` in some setups), from a clone of
@@ -185,10 +186,11 @@ The manual configuration equivalent starts with:
 
 ```sh
 # Configuration
-install -m 0600 env/app.env.example           /etc/artifactflow/app.env
-install -m 0600 env/postgres.env.example      /etc/artifactflow/postgres.env
-install -m 0600 env/parser.env.example        /etc/artifactflow/parser.env
-install -m 0600 env/artifact-host.env.example /etc/artifactflow/artifact-host.env
+mkdir -p ~/.config/artifactflow && chmod 0700 ~/.config/artifactflow
+install -m 0600 env/app.env.example           ~/.config/artifactflow/app.env
+install -m 0600 env/postgres.env.example      ~/.config/artifactflow/postgres.env
+install -m 0600 env/parser.env.example        ~/.config/artifactflow/parser.env
+install -m 0600 env/artifact-host.env.example ~/.config/artifactflow/artifact-host.env
 # ...fill in app.env, postgres.env, parser.env, and artifact-host.env
 # (secrets, hostnames, SMTP). The image-parser secret is one value in two
 # places: IMAGE_PARSER_SHARED_SECRET in app.env and in parser.env.
@@ -218,8 +220,8 @@ systemctl --user daemon-reload
    ```sh
    systemctl --user start artifactflow-postgres
    podman exec artifactflow-postgres \
-     cat /var/lib/postgresql/data/certs/root.crt > /etc/artifactflow/db-ca.pem
-   chmod 0644 /etc/artifactflow/db-ca.pem
+     cat /var/lib/postgresql/data/certs/root.crt > ~/.config/artifactflow/db-ca.pem
+   chmod 0644 ~/.config/artifactflow/db-ca.pem
    ```
 
 2. **App surface and parser** (`RUN_MIGRATIONS=0` at this point, the boot
@@ -241,7 +243,7 @@ systemctl --user daemon-reload
 
 4. **Restricted artifact-host database role**, the migration just created
    the tables the grant manifest references. Create the role with the
-   password from `/etc/artifactflow/artifact-host.env`, then apply the
+   password from `~/.config/artifactflow/artifact-host.env`, then apply the
    reviewed manifest from the pinned release tag:
 
    ```sh
@@ -282,7 +284,7 @@ systemctl --user daemon-reload
    `doctor` warns about `TRUSTED_PROXIES=REMOTE_ADDR`; that is expected here
   , the container ports are loopback-bound and reachable only through nginx.
 
-8. Set `RUN_MIGRATIONS=1` in `/etc/artifactflow/app.env` and
+8. Set `RUN_MIGRATIONS=1` in `~/.config/artifactflow/app.env` and
    `systemctl --user restart artifactflow-app`, so future deploys migrate on
    boot (the `--isolated` lock works from now on and guards overlapping
    restarts). The artifact-host unit pins `RUN_MIGRATIONS=0` regardless.
@@ -395,7 +397,7 @@ by hand from the PR diff.
 
   `APP_KEY`, `ARTIFACT_URL_SIGNING_KEY`, `IMAGE_PARSER_SHARED_SECRET`, every
   enabled processor secret, and the DB CA key live only in
-  `/etc/artifactflow` and the postgres volume:
+  `~/.config/artifactflow` and the postgres volume:
   keep an out-of-band copy of the secrets in a password manager; losing
   `APP_KEY` makes TOTP secrets and encrypted data unrecoverable. The
   parser/processor secrets protect no data at rest; rotate each matching pair

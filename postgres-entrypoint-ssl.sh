@@ -13,7 +13,7 @@ set -eu
 # clients pin; extract it after first boot:
 #
 #   podman exec artifactflow-postgres \
-#     cat /var/lib/postgresql/data/certs/root.crt > /etc/artifactflow/db-ca.pem
+#     cat /var/lib/postgresql/data/certs/root.crt > ~/.config/artifactflow/db-ca.pem
 
 cert_dir=/var/lib/postgresql/data/certs
 domain="${DB_SERVER_DOMAIN:-artifactflow-postgres}"
@@ -52,7 +52,7 @@ chmod 0644 "${cert_dir}/server.crt" "${cert_dir}/root.crt"
 
 echo "================================================================"
 echo "ArtifactFlow database CA certificate (public key material). Save"
-echo "it as /etc/artifactflow/db-ca.pem for the app-image units, or run:"
+echo "it as ~/.config/artifactflow/db-ca.pem for the app-image units, or run:"
 echo "  podman exec artifactflow-postgres cat ${cert_dir}/root.crt"
 echo "Server certificate issued for: ${domain}"
 echo "================================================================"

@@ -9,9 +9,11 @@ set -eu
 #   ./deploy.sh --no-verify  skip attestation verification only when every
 #                            deployed digest was verified elsewhere
 #
-# This script never edits /etc/artifactflow. Processor enablement and secrets
-# remain installer/operator decisions. If the release changes the restricted
-# artifact-host grants, re-apply that manifest after the migration.
+# This script never edits the config directory ($CFG, default
+# ~/.config/artifactflow, override with ARTIFACTFLOW_CONFIG_DIR). Processor
+# enablement and secrets remain installer/operator decisions. If the release
+# changes the restricted artifact-host grants, re-apply that manifest after
+# the migration.
 
 no_pull=0
 no_verify=0
@@ -22,6 +24,8 @@ for arg in "$@"; do
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+
+CFG="${ARTIFACTFLOW_CONFIG_DIR:-$HOME/.config/artifactflow}"
 
 die() {
   echo "ERROR: $*" >&2
@@ -66,7 +70,7 @@ require_processor_image() {
 validate_processor_config() {
   config_kind="$1"
   config_lower="$(printf '%s' "$config_kind" | tr '[:upper:]' '[:lower:]')"
-  config_file="/etc/artifactflow/$config_lower-processor.env"
+  config_file="$CFG/$config_lower-processor.env"
   [ -f "$config_file" ] || die "Missing $config_kind processor environment file."
   config_app_secret="$(read_value "${config_kind}_PROCESSOR_SHARED_SECRET" "$app_env")"
   config_service_secret="$(read_value "${config_kind}_PROCESSOR_SHARED_SECRET" "$config_file")"
@@ -160,7 +164,7 @@ if [ "$no_verify" = "0" ]; then
     --predicate-type https://slsa.dev/provenance/v1
 fi
 
-app_env=/etc/artifactflow/app.env
+app_env="$CFG/app.env"
 [ -f "$app_env" ] || die "Run ./install.sh before deploying."
 [ "$(read_value IMAGE_PARSER_SOCKET_PATH "$app_env")" = "/run/artifactflow/image-parser/parser.sock" ] || \
   die "This release requires the image-parser socket. Run ./install.sh --no-admin once; it preserves existing secrets."
@@ -223,6 +227,14 @@ if [ "$docx_enabled" = "1" ]; then
      quadlet/artifactflow-docx-processor-socket-init.container \
      "$HOME/.config/containers/systemd/"
 fi
+# Point installed units at $CFG for HOST-side config. Only env-file paths and
+# the db-ca Volume source move; the container-side db-ca path and
+# DB_SSLROOTCERT stay /etc/artifactflow.
+for u in "$HOME/.config/containers/systemd"/*.container; do
+  [ -e "$u" ] || continue
+  sed -i "s|^EnvironmentFile=/etc/artifactflow/|EnvironmentFile=$CFG/|" "$u"
+  sed -i "s|^Volume=/etc/artifactflow/db-ca.pem:|Volume=$CFG/db-ca.pem:|" "$u"
+done
 systemctl --user daemon-reload
 
 echo "Restarting enabled processors..."
