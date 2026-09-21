@@ -425,7 +425,7 @@ if [ -z "$APP_HOST" ] || [ -z "$ART_HOST" ]; then
   die "Could not determine the hostnames."
 fi
 
-# v0.2.1 uses the local image parser socket; preserve the existing HMAC secret.
+# The pinned release uses the local image parser socket; preserve the existing HMAC secret.
 set_env IMAGE_PARSER_URL "http://localhost" "$CFG/app.env"
 set_env IMAGE_PARSER_SOCKET_PATH "/run/artifactflow/image-parser/parser.sock" "$CFG/app.env"
 
