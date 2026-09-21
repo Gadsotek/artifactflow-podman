@@ -24,7 +24,7 @@ PodmanArgs=--memory=768m --cpus=1.0
 Ulimit=nofile=256:256
 HealthCmd=php /srv/docx-processor/healthcheck.php
 HealthInterval=30s
-HealthTimeout=8s
+HealthTimeout=15s
 HealthRetries=6
 HealthStartPeriod=15s
 
