@@ -16,8 +16,11 @@ set -euo pipefail
 # What the script does NOT do (a human must): the two DNS records and
 # nginx + certbot. It prints the exact commands at the end.
 #
+# Config lives in $CFG (default ~/.config/artifactflow, override with
+# ARTIFACTFLOW_CONFIG_DIR). No root is needed for it; the installer creates it.
+#
 # Flags:
-#   --reconfigure   REGENERATE all configuration and secrets in /etc/artifactflow.
+#   --reconfigure   REGENERATE all configuration and secrets in $CFG.
 #                   This rotates APP_KEY, which makes existing encrypted data and
 #                   2FA unrecoverable. Use only on a fresh/empty installation.
 #   --enable-pdf    enable PDF without rotating unrelated secrets
@@ -42,7 +45,7 @@ for arg in "$@"; do
   esac
 done
 
-CFG=/etc/artifactflow
+CFG="${ARTIFACTFLOW_CONFIG_DIR:-$HOME/.config/artifactflow}"
 here="$(cd "$(dirname "$0")" && pwd)"
 cd "$here"
 
@@ -229,8 +232,9 @@ esac
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 have podman  || die "podman not found (Podman 5.0+). Install it as root: apt install podman"
 have openssl || die "openssl not found."
-[ -d "$CFG" ] || die "Directory $CFG does not exist. Create it as root (see GUIDE.html, step 0)."
-[ -w "$CFG" ] || die "Cannot write to $CFG. Make sure it is owned by the artifactflow user."
+mkdir -p "$CFG" || die "Could not create config directory $CFG."
+chmod 0700 "$CFG"
+[ -w "$CFG" ] || die "Cannot write to $CFG."
 have curl || echo "Note: curl not found. You will have to apply the database grants manually (shown at the end)."
 
 TAG="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' quadlet/artifactflow-release.image)"
@@ -500,6 +504,14 @@ if [ "$DOCX_ENABLED" = "1" ]; then
      quadlet/artifactflow-docx-processor-socket-init.container \
      "$HOME/.config/containers/systemd/"
 fi
+# Point the installed units at $CFG for HOST-side config. Only the env-file
+# paths and the db-ca Volume SOURCE move; the container-side db-ca destination
+# and DB_SSLROOTCERT stay /etc/artifactflow so DB TLS keeps working.
+for u in "$HOME/.config/containers/systemd"/*.container; do
+  [ -e "$u" ] || continue
+  sed -i "s|^EnvironmentFile=/etc/artifactflow/|EnvironmentFile=$CFG/|" "$u"
+  sed -i "s|^Volume=/etc/artifactflow/db-ca.pem:|Volume=$CFG/db-ca.pem:|" "$u"
+done
 systemctl --user daemon-reload
 
 # ---------- 4) database + CA ----------

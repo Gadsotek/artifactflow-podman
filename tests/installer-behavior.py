@@ -48,8 +48,9 @@ class InstallerBehavior(unittest.TestCase):
         for p in (ROOT/'env').glob('*.example'):
             shutil.copyfile(p, self.repo/'env'/p.name.replace('.env', '.fixture'))
         for name in ('install.sh', 'deploy.sh', 'processor-images.lock', 'Dockerfile.image-parser', 'Dockerfile.pdf-processor'):
-            content = (ROOT/name).read_text().replace('/etc/artifactflow', str(self.cfg))
-            content = content.replace('$HOME/.config/containers/systemd', str(self.units))
+            # CFG is now env-driven (ARTIFACTFLOW_CONFIG_DIR); leave the
+            # /etc/artifactflow literals (container path + host-rewrite rules) intact.
+            content = (ROOT/name).read_text().replace('$HOME/.config/containers/systemd', str(self.units))
             content = content.replace('.env', '.fixture')
             (self.repo/name).write_text(content)
         for name in ('id', 'uname', 'podman', 'systemctl', 'gh', 'curl'):
@@ -57,7 +58,8 @@ class InstallerBehavior(unittest.TestCase):
             target.write_text(MOCK)
             target.chmod(0o755)
         self.log = self.base/'commands.jsonl'
-        self.env = dict(os.environ, PATH=str(self.bin)+':'+os.environ['PATH'], AF_TEST_LOG=str(self.log))
+        self.env = dict(os.environ, PATH=str(self.bin)+':'+os.environ['PATH'],
+                        AF_TEST_LOG=str(self.log), ARTIFACTFLOW_CONFIG_DIR=str(self.cfg))
 
     def existing(self):
         for name in ('app', 'postgres', 'parser', 'artifact-host'):
