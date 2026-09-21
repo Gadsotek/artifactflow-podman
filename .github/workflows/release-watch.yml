@@ -24,7 +24,9 @@ name: Release watch
 
 on:
   schedule:
-    - cron: '17 6 * * *'
+    # Hourly at :17. The job no-ops when the pin already matches the latest
+    # release, so frequent runs are cheap and just pick up a new release faster.
+    - cron: '17 * * * *'
   workflow_dispatch:
 
 permissions:
