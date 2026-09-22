@@ -12,9 +12,9 @@
 #     --signer-workflow Gadsotek/artifactflow/.github/workflows/release.yml \
 #     --predicate-type https://slsa.dev/provenance/v1
 #
-# Pinned release: ArtifactFlow v0.3.1
+# Pinned release: ArtifactFlow v0.3.2
 [Unit]
 Description=ArtifactFlow pinned release image
 
 [Image]
-Image=ghcr.io/gadsotek/artifactflow@sha256:6b3989371e057e8f04446d93e182a5fdc559a5b8326f774918e07c1dd7d10e99
+Image=ghcr.io/gadsotek/artifactflow@sha256:33780a2f98216a38d2550bbd2de9a167344906b925b7645357b4648c67eb2663
