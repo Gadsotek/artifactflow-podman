@@ -200,11 +200,13 @@ egress.
 
 Two operator steps finish it:
 
-1. **Edge (root):** uncomment the `location /app/` block in
-   `nginx/artifactflow-app.conf` so the app origin proxies the browser websocket
-   (`wss /app/<key>`) to `127.0.0.1:8082`, then
-   `nginx -t && systemctl reload nginx`. Keep it on the app origin only; the
-   artifact origin must never route to Reverb.
+1. **Edge (root):** uncomment the `location /app/` block in the **installed**
+   vhost `/etc/nginx/sites-available/artifactflow-app.conf` (the repo copy is not
+   served) so the app origin proxies the browser websocket (`wss /app/<key>`) to
+   `127.0.0.1:8082`, then `nginx -t && systemctl reload nginx`. On a first-time
+   edge setup, uncomment it in the repo template before copying it into
+   `sites-available/`. Keep it on the app origin only; the artifact origin must
+   never route to Reverb.
 2. **Admin:** sign in and turn realtime on under Administration. The app refuses
    to enable it unless Reverb is validly configured, which `--enable-reverb`
    makes it.
