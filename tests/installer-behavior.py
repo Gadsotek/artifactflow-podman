@@ -27,6 +27,8 @@ elif name == 'podman':
         if '-i' in args: sys.stdin.read()
         if any('artifactflow:doctor' in a for a in args):
             sys.exit(int(os.environ.get('AF_TEST_DOCTOR_EXIT', '0')))
+elif name == 'systemctl':
+    if 'daemon-reload' in args: sys.exit(int(os.environ.get('AF_TEST_RELOAD_EXIT', '0')))
 elif name == 'gh': sys.exit(int(os.environ.get('AF_TEST_VERIFY_EXIT', '0')))
 elif name == 'curl': print('192.0.2.20' if any('ipify' in a for a in args) else '-- synthetic grants')
 '''
@@ -149,6 +151,17 @@ class InstallerBehavior(unittest.TestCase):
         self.assertEqual(before, (self.cfg/'app.fixture').read_bytes())
         self.assertFalse((self.units/'artifactflow-reverb.container').exists())
         self.assertFalse(any(c[0] == 'systemctl' for c in self.calls()))
+
+    def test_enable_reverb_is_not_committed_when_unit_registration_fails(self):
+        self.existing()
+        before = (self.cfg/'app.fixture').read_bytes()
+        self.env['AF_TEST_RELOAD_EXIT'] = '1'
+        result = self.run_script('install.sh', '--enable-reverb')
+        self.assertNotEqual(result.returncode, 0)
+        # A daemon-reload failure (reverb unit not registered with systemd) must
+        # not persist BROADCAST_CONNECTION=reverb: the config is committed only
+        # after the unit is copied and registered.
+        self.assertEqual(before, (self.cfg/'app.fixture').read_bytes())
 
     def test_missing_docx_pin_leaves_dependency_disabled(self):
         self.existing()

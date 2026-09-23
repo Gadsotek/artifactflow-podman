@@ -518,14 +518,6 @@ if [ "$PDF_ENABLED" = "1" ]; then prepare_processor_image PDF; fi
 if [ "$XLSX_ENABLED" = "1" ]; then prepare_processor_image XLSX; fi
 if [ "$DOCX_ENABLED" = "1" ]; then prepare_processor_image DOCX; fi
 
-# Commit the Reverb configuration only now that the release image is pulled and
-# every enabled image is attestation-verified, so a failed build or verification
-# above never persists BROADCAST_CONNECTION=reverb without the reverb unit
-# (installed just below). Idempotent: a re-run already on reverb rewrites nothing.
-if [ "$REVERB_ENABLED" = "1" ] && [ "$(read_env BROADCAST_CONNECTION "$CFG/app.env")" != "reverb" ]; then
-  enable_reverb_config
-fi
-
 # ---------- 3) quadlet units ----------
 echo "== Installing quadlet units..."
 mkdir -p "$HOME/.config/containers/systemd"
@@ -569,6 +561,17 @@ for u in "$HOME/.config/containers/systemd"/*.container; do
   sed -i "s|^Volume=/etc/artifactflow/db-ca.pem:|Volume=$CFG/db-ca.pem:|" "$u"
 done
 systemctl --user daemon-reload
+
+# Commit the Reverb configuration only now: the release image is pulled and
+# attestation-verified (section 2) AND the artifactflow-reverb unit has been
+# copied, path-rewritten, and registered with systemd (above). A failure at any
+# of those steps therefore never persists BROADCAST_CONNECTION=reverb without a
+# registered reverb unit. The app boots with this config just below; the reverb
+# container starts after the migration. Idempotent: a re-run already on reverb
+# rewrites nothing.
+if [ "$REVERB_ENABLED" = "1" ] && [ "$(read_env BROADCAST_CONNECTION "$CFG/app.env")" != "reverb" ]; then
+  enable_reverb_config
+fi
 
 # ---------- 4) database + CA ----------
 echo
@@ -732,9 +735,12 @@ if [ "$REVERB_ENABLED" = "1" ]; then
 
 Realtime (Reverb) is wired and the artifactflow-reverb container is healthy, but
 the browser websocket is not reachable yet. Two steps remain:
-  1) As root, in nginx/artifactflow-app.conf (the app vhost) uncomment the
-     "location /app/" block so the app origin proxies wss /app/<key> to
-     127.0.0.1:8082, then: nginx -t && systemctl reload nginx
+  1) As root, in the INSTALLED app vhost
+     /etc/nginx/sites-available/artifactflow-app.conf (not the repo copy, which
+     nginx does not serve), uncomment the "location /app/" block so the app
+     origin proxies wss /app/<key> to 127.0.0.1:8082, then:
+     nginx -t && systemctl reload nginx. If the vhost is not installed yet,
+     uncomment it in the repo template first, then copy it as shown above.
   2) Sign in as an administrator and turn realtime on under Administration. The
      app refuses to enable it unless Reverb is validly configured, which it now
      is (public origin https://${APP_HOST}, dedicated secret).
