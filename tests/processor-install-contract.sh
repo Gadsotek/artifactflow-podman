@@ -107,4 +107,15 @@ assert_contains deploy.sh 'validate_processor_config DOCX'
 assert_contains .github/workflows/release-watch.yml 'artifactflow-xlsx-processor@sha256:'
 assert_contains .github/workflows/release-watch.yml 'artifactflow-docx-processor@sha256:'
 
+# Realtime (Reverb): opt-in unit, app-origin only, isolated from the artifact host.
+assert_contains install.sh '--enable-reverb'
+assert_contains install.sh 'enable_reverb_config'
+assert_contains deploy.sh 'artifactflow-reverb'
+assert_file quadlet/artifactflow-reverb.container
+assert_contains quadlet/artifactflow-reverb.container 'php artisan reverb:start'
+assert_contains quadlet/artifactflow-reverb.container 'PublishPort=127.0.0.1:8082:8080'
+assert_contains quadlet/artifactflow-reverb.container 'APP_RUNTIME_ROLE=worker'
+assert_contains quadlet/artifactflow-artifact-host.container 'BROADCAST_CONNECTION=null'
+assert_contains quadlet/artifactflow-artifact-host.container 'REVERB_APP_SECRET='
+
 echo 'processor install contract: OK'

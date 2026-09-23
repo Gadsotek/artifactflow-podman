@@ -171,10 +171,12 @@ app_env="$CFG/app.env"
 pdf_enabled=0
 xlsx_enabled=0
 docx_enabled=0
+reverb_enabled=0
 if [ -f "$app_env" ]; then
   [ "$(read_value PDF_PROCESSOR_ENABLED "$app_env")" = "true" ] && pdf_enabled=1
   [ "$(read_value XLSX_PROCESSOR_ENABLED "$app_env")" = "true" ] && xlsx_enabled=1
   [ "$(read_value DOCX_PROCESSOR_ENABLED "$app_env")" = "true" ] && docx_enabled=1
+  [ "$(read_value BROADCAST_CONNECTION "$app_env")" = "reverb" ] && reverb_enabled=1
 fi
 [ "$docx_enabled" = "0" ] || [ "$pdf_enabled" = "1" ] || \
   die "DOCX is enabled without its required PDF processor."
@@ -207,6 +209,7 @@ for f in quadlet/*; do
     artifactflow-pdf-processor.container|artifactflow-pdf-processor-socket-init.container|\
     artifactflow-xlsx-processor.container|artifactflow-xlsx-processor-socket-init.container|\
     artifactflow-docx-processor.container|artifactflow-docx-processor-socket-init.container|\
+    artifactflow-reverb.container|\
     artifactflow-pdf.network)
       continue ;;
   esac
@@ -226,6 +229,9 @@ if [ "$docx_enabled" = "1" ]; then
   cp quadlet/artifactflow-docx-processor.container \
      quadlet/artifactflow-docx-processor-socket-init.container \
      "$HOME/.config/containers/systemd/"
+fi
+if [ "$reverb_enabled" = "1" ]; then
+  cp quadlet/artifactflow-reverb.container "$HOME/.config/containers/systemd/"
 fi
 # Point installed units at $CFG for HOST-side config. Only env-file paths and
 # the db-ca Volume source move; the container-side db-ca path and
@@ -257,10 +263,16 @@ fi
 echo "Restarting application services..."
 systemctl --user restart artifactflow-image-parser artifactflow-app \
   artifactflow-artifact-host artifactflow-worker artifactflow-scheduler
+if [ "$reverb_enabled" = "1" ]; then
+  systemctl --user restart artifactflow-reverb
+fi
 
 echo "Waiting for HTTP surfaces to report healthy..."
 wait_healthy artifactflow-app 36
 wait_healthy artifactflow-artifact-host 36
+if [ "$reverb_enabled" = "1" ]; then
+  wait_healthy artifactflow-reverb 36
+fi
 
 echo
 podman exec artifactflow-app php artisan artifactflow:doctor

@@ -43,19 +43,28 @@ server, top to bottom. Use non-sensitive test content only.
       `--enable-xlsx`, and `--enable-docx` preserve unrelated secrets.
 - [ ] Enabling DOCX also enables PDF. Enabling a format absent from
       `processor-images.lock` fails before changing its feature flag.
+- [ ] `--enable-reverb` sets `BROADCAST_CONNECTION=reverb`, generates a
+      dedicated `REVERB_APP_SECRET`, pins `REVERB_PUBLIC_URL` and
+      `REVERB_ALLOWED_ORIGINS` to `APP_URL`, installs `artifactflow-reverb`, and
+      the reverb container becomes healthy before doctor.
 
 ## Idempotency
 
 - [ ] Re-running `./install.sh` keeps existing secrets (does not regenerate).
 - [ ] `./install.sh --reconfigure` regenerates config as expected.
 - [ ] Re-running each `--enable-*` flag does not rotate an existing processor
-      secret.
+      secret, nor `REVERB_APP_SECRET`.
 - [ ] Role creation and grants are safe to re-apply.
 
 ## Edge (root)
 
 - [ ] nginx vhosts installed with real hostnames; `nginx -t` passes.
 - [ ] `certbot --nginx -d <app>` and `-d <artifact>` obtain certificates.
+- [ ] If Reverb is enabled, the `location /app/` block in the app vhost is
+      uncommented and `wss` to `/app/<key>` on the **app** origin reaches Reverb;
+      the artifact vhost has no such route and receives no realtime egress. In
+      Administration, realtime can be turned on and a second browser sees live
+      updates without a reload.
 
 ## Browser acceptance
 

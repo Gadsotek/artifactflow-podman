@@ -27,6 +27,7 @@ set -euo pipefail
 #   --enable-xlsx   enable XLSX without rotating unrelated secrets
 #   --enable-docx   enable DOCX and its required PDF chain without rotating
 #                   unrelated secrets
+#   --enable-reverb enable realtime (Reverb) without rotating unrelated secrets
 #   --no-admin      skip creating the first administrator
 
 RECONFIGURE=0
@@ -34,12 +35,14 @@ CREATE_ADMIN=1
 ENABLE_PDF=0
 ENABLE_XLSX=0
 ENABLE_DOCX=0
+ENABLE_REVERB=0
 for arg in "$@"; do
   case "$arg" in
     --reconfigure) RECONFIGURE=1 ;;
     --enable-pdf) ENABLE_PDF=1 ;;
     --enable-xlsx) ENABLE_XLSX=1 ;;
     --enable-docx) ENABLE_DOCX=1 ;;
+    --enable-reverb) ENABLE_REVERB=1 ;;
     --no-admin) CREATE_ADMIN=0 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
@@ -163,6 +166,29 @@ sync_processor_env() {
   set_env "${kind}_PROCESSOR_SHARED_SECRET" "$secret" "$CFG/$lower-processor.env"
 }
 
+# Enable realtime (Reverb): generate its identity/secret and pin both public
+# origins to APP_URL. Only REVERB_APP_SECRET is sensitive; the boot gate requires
+# it strong and dedicated, and REVERB_PUBLIC_URL/REVERB_ALLOWED_ORIGINS to equal
+# the app origin. The app/worker/scheduler roles publish to the reverb container
+# internally (REVERB_HOST); the browser reaches it only through the app vhost.
+enable_reverb_config() {
+  local app_id app_key app_secret
+  app_id="$(openssl rand -hex 8)"
+  app_key="$(openssl rand -hex 16)"
+  app_secret="$(gen_secret)"
+  set_env BROADCAST_CONNECTION "reverb" "$CFG/app.env"
+  set_env REVERB_APP_ID "$app_id" "$CFG/app.env"
+  set_env REVERB_APP_KEY "$app_key" "$CFG/app.env"
+  set_env REVERB_APP_SECRET "$app_secret" "$CFG/app.env"
+  set_env REVERB_HOST "artifactflow-reverb" "$CFG/app.env"
+  set_env REVERB_PORT "8080" "$CFG/app.env"
+  set_env REVERB_SCHEME "http" "$CFG/app.env"
+  set_env REVERB_PUBLIC_URL "https://$APP_HOST" "$CFG/app.env"
+  set_env REVERB_ALLOWED_ORIGINS "https://$APP_HOST" "$CFG/app.env"
+  set_env REVERB_APP_MAX_CONNECTIONS "1000" "$CFG/app.env"
+  set_env REVERB_APP_RATE_LIMITING_ENABLED "true" "$CFG/app.env"
+}
+
 # wait until a container reports "healthy"
 wait_healthy() {
   local c="$1" tries="${2:-48}" i=0 st
@@ -253,6 +279,7 @@ SOURCE_COMMIT="$(sed -n 's/^ARG ARTIFACTFLOW_COMMIT=\([0-9a-f]*\)$/\1/p' Dockerf
 PDF_ENABLED=0
 XLSX_ENABLED=0
 DOCX_ENABLED=0
+REVERB_ENABLED=0
 if [ -f "$CFG/app.env" ] && [ "$RECONFIGURE" = "0" ]; then
   echo
   echo "== Configuration already exists in $CFG, keeping it (and all secrets)."
@@ -263,6 +290,7 @@ if [ -f "$CFG/app.env" ] && [ "$RECONFIGURE" = "0" ]; then
   [ "$(read_env PDF_PROCESSOR_ENABLED "$CFG/app.env")" = "true" ] && PDF_ENABLED=1
   [ "$(read_env XLSX_PROCESSOR_ENABLED "$CFG/app.env")" = "true" ] && XLSX_ENABLED=1
   [ "$(read_env DOCX_PROCESSOR_ENABLED "$CFG/app.env")" = "true" ] && DOCX_ENABLED=1
+  [ "$(read_env BROADCAST_CONNECTION "$CFG/app.env")" = "reverb" ] && REVERB_ENABLED=1
 
   if [ "$ENABLE_DOCX" = "1" ] && [ "$PDF_ENABLED" = "0" ]; then
     echo "== DOCX requires PDF; enabling both."
@@ -287,6 +315,11 @@ if [ -f "$CFG/app.env" ] && [ "$RECONFIGURE" = "0" ]; then
     echo "== Enabling DOCX (other secrets untouched)."
     enable_processor_config DOCX
     DOCX_ENABLED=1
+  fi
+  if [ "$ENABLE_REVERB" = "1" ] && [ "$REVERB_ENABLED" = "0" ]; then
+    echo "== Enabling realtime (Reverb) (other secrets untouched)."
+    enable_reverb_config
+    REVERB_ENABLED=1
   fi
 
   [ "$DOCX_ENABLED" = "0" ] || [ "$PDF_ENABLED" = "1" ] || \
@@ -418,6 +451,19 @@ else
     echo "  DOCX left off; enable later with ./install.sh --enable-docx"
   fi
 
+  if [ "$ENABLE_REVERB" = "1" ]; then
+    REVERB_ENABLED=1
+  else
+    prompt REVERB_KIND "Enable realtime (Reverb) now? (y/N)" "N"
+    case "$REVERB_KIND" in [Yy]*) REVERB_ENABLED=1 ;; esac
+  fi
+  if [ "$REVERB_ENABLED" = "1" ]; then
+    enable_reverb_config
+    echo "  Reverb enabled (finish the nginx websocket route and the admin toggle, shown at the end)."
+  else
+    echo "  Reverb left off; enable later with ./install.sh --enable-reverb"
+  fi
+
   echo
   echo "== Secrets generated and written to $CFG (mode 0600)."
   echo "   IMPORTANT: copy APP_KEY and ARTIFACT_URL_SIGNING_KEY from $CFG/app.env"
@@ -484,6 +530,7 @@ for f in quadlet/*; do
     artifactflow-pdf-processor.container|artifactflow-pdf-processor-socket-init.container|\
     artifactflow-xlsx-processor.container|artifactflow-xlsx-processor-socket-init.container|\
     artifactflow-docx-processor.container|artifactflow-docx-processor-socket-init.container|\
+    artifactflow-reverb.container|\
     artifactflow-pdf.network)
       continue ;;
   esac
@@ -503,6 +550,9 @@ if [ "$DOCX_ENABLED" = "1" ]; then
   cp quadlet/artifactflow-docx-processor.container \
      quadlet/artifactflow-docx-processor-socket-init.container \
      "$HOME/.config/containers/systemd/"
+fi
+if [ "$REVERB_ENABLED" = "1" ]; then
+  cp quadlet/artifactflow-reverb.container "$HOME/.config/containers/systemd/"
 fi
 # Point the installed units at $CFG for HOST-side config. Only the env-file
 # paths and the db-ca Volume SOURCE move; the container-side db-ca destination
@@ -583,6 +633,13 @@ echo "== Starting artifact-host, worker, and scheduler..."
 systemctl --user restart artifactflow-artifact-host artifactflow-worker artifactflow-scheduler
 wait_healthy artifactflow-artifact-host || die "The artifact host did not become healthy."
 
+if [ "$REVERB_ENABLED" = "1" ]; then
+  echo "== Starting the Reverb realtime server..."
+  systemctl --user restart artifactflow-reverb
+  wait_healthy artifactflow-reverb || \
+    die "Reverb did not become healthy (see journalctl --user -u artifactflow-reverb; a weak/reused REVERB_APP_SECRET or an origin that is not APP_URL fails it closed)."
+fi
+
 # ---------- 8) first administrator ----------
 if [ "$CREATE_ADMIN" = "1" ]; then
   echo
@@ -662,4 +719,19 @@ signed live doctor checks, hostile-file/browser coverage, released Safari/iOS,
 and the final evidence-first security review. DOCX additionally requires both
 its LibreOffice check and the downstream PDFBox check to remain green.
 PROCESSORDONE
+fi
+
+if [ "$REVERB_ENABLED" = "1" ]; then
+  cat <<REVERBDONE
+
+Realtime (Reverb) is wired and the artifactflow-reverb container is healthy, but
+the browser websocket is not reachable yet. Two steps remain:
+  1) As root, in nginx/artifactflow-app.conf (the app vhost) uncomment the
+     "location /app/" block so the app origin proxies wss /app/<key> to
+     127.0.0.1:8082, then: nginx -t && systemctl reload nginx
+  2) Sign in as an administrator and turn realtime on under Administration. The
+     app refuses to enable it unless Reverb is validly configured, which it now
+     is (public origin https://${APP_HOST}, dedicated secret).
+The artifact origin never receives Reverb credentials or realtime egress.
+REVERBDONE
 fi

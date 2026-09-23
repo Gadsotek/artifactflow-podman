@@ -1,0 +1,51 @@
+# Reverb realtime websocket server. Optional; wired only by
+# `./install.sh --enable-reverb` (or a later re-run once realtime is wanted).
+#
+# The pinned app image has no dedicated reverb role, so this runs the image in
+# the worker role with an overridden command (`php artisan reverb:start`),
+# exactly as the reference compose stack does. The production boot gate runs for
+# every role once BROADCAST_CONNECTION=reverb, so a bad reverb origin or a weak/
+# reused REVERB_APP_SECRET fails THIS unit closed instead of leaking realtime.
+#
+# Topology:
+#   - Published loopback-only. The app-origin nginx vhost proxies the browser
+#     websocket (wss /app/<REVERB_APP_KEY>) to 127.0.0.1:8082. See
+#     nginx/artifactflow-app.conf and README "Realtime (Reverb)".
+#   - The app, worker, and scheduler publish events to this container INTERNALLY
+#     over artifactflow.network (REVERB_HOST=artifactflow-reverb, http, 8080);
+#     that traffic never traverses nginx.
+#   - REVERB_PUBLIC_URL and REVERB_ALLOWED_ORIGINS must equal the app origin
+#     (APP_URL). The installer sets both; do not point them at the artifact
+#     origin.
+[Unit]
+Description=ArtifactFlow Reverb realtime server
+Requires=artifactflow-postgres.service
+After=artifactflow-postgres.service artifactflow-app.service
+
+[Container]
+ContainerName=artifactflow-reverb
+Image=artifactflow-release.image
+Network=artifactflow.network
+EnvironmentFile=/etc/artifactflow/app.env
+Environment=APP_RUNTIME_ROLE=worker RUN_MIGRATIONS=0
+Environment=REVERB_SERVER_HOST=0.0.0.0 REVERB_SERVER_PORT=8080
+Environment=IMAGE_PARSER_ENABLED=false IMAGE_PARSER_URL= IMAGE_PARSER_SOCKET_PATH= IMAGE_PARSER_SHARED_SECRET=
+Environment=PDF_PROCESSOR_ENABLED=false PDF_PROCESSOR_URL= PDF_PROCESSOR_SOCKET_PATH= PDF_PROCESSOR_SHARED_SECRET=
+Environment=XLSX_PROCESSOR_ENABLED=false XLSX_PROCESSOR_URL= XLSX_PROCESSOR_SOCKET_PATH= XLSX_PROCESSOR_SHARED_SECRET=
+Environment=DOCX_PROCESSOR_ENABLED=false DOCX_PROCESSOR_URL= DOCX_PROCESSOR_SOCKET_PATH= DOCX_PROCESSOR_SHARED_SECRET=
+PublishPort=127.0.0.1:8082:8080
+Exec=sh -lc 'cd /var/www/html && exec php artisan reverb:start --host=0.0.0.0 --port=8080'
+Volume=/etc/artifactflow/db-ca.pem:/etc/artifactflow/db-ca.pem:ro,z
+HealthCmd=sh /var/www/html/docker/healthcheck-app.sh
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=20s
+NoNewPrivileges=true
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
