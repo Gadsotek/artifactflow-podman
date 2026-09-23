@@ -317,8 +317,7 @@ if [ -f "$CFG/app.env" ] && [ "$RECONFIGURE" = "0" ]; then
     DOCX_ENABLED=1
   fi
   if [ "$ENABLE_REVERB" = "1" ] && [ "$REVERB_ENABLED" = "0" ]; then
-    echo "== Enabling realtime (Reverb) (other secrets untouched)."
-    enable_reverb_config
+    echo "== Enabling realtime (Reverb) (other secrets untouched; wired after image checks)."
     REVERB_ENABLED=1
   fi
 
@@ -458,8 +457,7 @@ else
     case "$REVERB_KIND" in [Yy]*) REVERB_ENABLED=1 ;; esac
   fi
   if [ "$REVERB_ENABLED" = "1" ]; then
-    enable_reverb_config
-    echo "  Reverb enabled (finish the nginx websocket route and the admin toggle, shown at the end)."
+    echo "  Reverb enabled (wired after image checks; finish the nginx route and admin toggle shown at the end)."
   else
     echo "  Reverb left off; enable later with ./install.sh --enable-reverb"
   fi
@@ -519,6 +517,14 @@ podman pull "ghcr.io/gadsotek/artifactflow@sha256:$DIGEST" || \
 if [ "$PDF_ENABLED" = "1" ]; then prepare_processor_image PDF; fi
 if [ "$XLSX_ENABLED" = "1" ]; then prepare_processor_image XLSX; fi
 if [ "$DOCX_ENABLED" = "1" ]; then prepare_processor_image DOCX; fi
+
+# Commit the Reverb configuration only now that the release image is pulled and
+# every enabled image is attestation-verified, so a failed build or verification
+# above never persists BROADCAST_CONNECTION=reverb without the reverb unit
+# (installed just below). Idempotent: a re-run already on reverb rewrites nothing.
+if [ "$REVERB_ENABLED" = "1" ] && [ "$(read_env BROADCAST_CONNECTION "$CFG/app.env")" != "reverb" ]; then
+  enable_reverb_config
+fi
 
 # ---------- 3) quadlet units ----------
 echo "== Installing quadlet units..."

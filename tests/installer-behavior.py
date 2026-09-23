@@ -138,6 +138,18 @@ class InstallerBehavior(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(after, settings(self.cfg/'app.fixture'))
 
+    def test_enable_reverb_is_not_committed_when_image_verification_fails(self):
+        self.existing()
+        before = (self.cfg/'app.fixture').read_bytes()
+        self.env['AF_TEST_VERIFY_EXIT'] = '1'
+        result = self.run_script('install.sh', '--enable-reverb')
+        self.assertNotEqual(result.returncode, 0)
+        # A failed attestation must not leave BROADCAST_CONNECTION=reverb behind
+        # without the reverb unit, and must not install or start anything.
+        self.assertEqual(before, (self.cfg/'app.fixture').read_bytes())
+        self.assertFalse((self.units/'artifactflow-reverb.container').exists())
+        self.assertFalse(any(c[0] == 'systemctl' for c in self.calls()))
+
     def test_missing_docx_pin_leaves_dependency_disabled(self):
         self.existing()
         p = self.repo/'processor-images.lock'
