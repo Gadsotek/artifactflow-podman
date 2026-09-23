@@ -58,6 +58,20 @@ class DeploymentContract(unittest.TestCase):
         for path in (ROOT / "quadlet").glob("*-socket-init.container"):
             self.assertEqual(unit(path.name).get("Entrypoint"), ["/bin/sh"], path.name)
 
+    def test_reverb_is_worker_role_loopback_only_and_isolated_from_artifact_host(self):
+        reverb = unit("artifactflow-reverb.container")
+        env = " ".join(reverb["Environment"])
+        self.assertIn("APP_RUNTIME_ROLE=worker", env)
+        self.assertIn("reverb:start", " ".join(reverb["Exec"]))
+        self.assertEqual(reverb["PublishPort"], ["127.0.0.1:8082:8080"])
+        # The reverb worker carries no parser/processor credentials.
+        for absent in ("IMAGE_PARSER_SHARED_SECRET=", "PDF_PROCESSOR_SHARED_SECRET="):
+            self.assertIn(absent, env)
+        # The artifact origin never receives realtime egress or the reverb secret.
+        artifact_host = " ".join(unit("artifactflow-artifact-host.container")["Environment"])
+        self.assertIn("BROADCAST_CONNECTION=null", artifact_host)
+        self.assertIn("REVERB_APP_SECRET=", artifact_host)
+
 
 if __name__ == "__main__":
     unittest.main()

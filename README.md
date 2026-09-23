@@ -92,6 +92,7 @@ This kit applies the release's runtime contract to one VM:
 | `artifactflow-artifact-host` | `artifact-host` | release digest | `127.0.0.1:8081` | storage **ro**, db-ca ro |
 | `artifactflow-worker` | `worker` | release digest | none | db-ca ro |
 | `artifactflow-scheduler` | `scheduler` | release digest | none | db-ca ro |
+| `artifactflow-reverb` | `worker` (runs `reverb:start`; opt-in) | release digest | `127.0.0.1:8082` | db-ca ro |
 | `artifactflow-storage-init` | one-shot init | release digest | none | storage rw |
 | `artifactflow-postgres` | database | local build | none (network-internal) | `artifactflow-db` |
 | `artifactflow-image-parser` | image parser | local build | none (`Network=none`) | image-socket rw |
@@ -162,10 +163,11 @@ this repository, the recommended path is:
 ./install.sh
 ```
 
-The guided installer offers every processor published by the pinned release.
-All default to off; use `--enable-pdf`, `--enable-xlsx`, or `--enable-docx` for
-an explicit non-interactive format selection (DOCX includes PDF). It preserves
-existing secrets unless `--reconfigure` is supplied.
+The guided installer offers every processor published by the pinned release,
+plus realtime (Reverb). All default to off; use `--enable-pdf`, `--enable-xlsx`,
+`--enable-docx`, or `--enable-reverb` for an explicit non-interactive selection
+(DOCX includes PDF). It preserves existing secrets unless `--reconfigure` is
+supplied.
 
 To enable all three document formats on a new or existing installation:
 
@@ -177,6 +179,38 @@ DOCX includes PDF. The installer refreshes processor containers and both HTTP
 origins before its live doctor check. Existing keys are preserved. Never use
 `--reconfigure` on a populated installation: it rotates encryption keys and
 database credentials.
+
+### Realtime (Reverb)
+
+Realtime is off by default. Enable it any time, on a new or existing
+installation:
+
+```sh
+./install.sh --enable-reverb
+```
+
+This generates the Reverb app id/key/secret (only the secret is sensitive, and
+the boot gate requires it strong and dedicated), sets `BROADCAST_CONNECTION=reverb`
+with both public origins pinned to `APP_URL`, and installs `artifactflow-reverb`,
+the release image in the worker role running `php artisan reverb:start`, published
+loopback-only on `127.0.0.1:8082`. The app, worker, and scheduler publish to it
+internally over `artifactflow.network`; the `artifact-host` role is deliberately
+kept clear of every Reverb credential so the artifact origin holds no realtime
+egress.
+
+Two operator steps finish it:
+
+1. **Edge (root):** uncomment the `location /app/` block in
+   `nginx/artifactflow-app.conf` so the app origin proxies the browser websocket
+   (`wss /app/<key>`) to `127.0.0.1:8082`, then
+   `nginx -t && systemctl reload nginx`. Keep it on the app origin only; the
+   artifact origin must never route to Reverb.
+2. **Admin:** sign in and turn realtime on under Administration. The app refuses
+   to enable it unless Reverb is validly configured, which `--enable-reverb`
+   makes it.
+
+`REVERB_PUBLIC_URL` and `REVERB_ALLOWED_ORIGINS` must equal `APP_URL`; the
+production boot gate fails the reverb unit closed otherwise.
 
 The manual configuration equivalent starts with:
 

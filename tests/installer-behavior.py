@@ -110,6 +110,46 @@ class InstallerBehavior(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(after, settings(self.cfg/'app.fixture'))
 
+    def test_enable_reverb_wires_app_origin_socket_with_dedicated_secret(self):
+        self.existing()
+        before = settings(self.cfg/'app.fixture')
+        result = self.run_script('install.sh', '--enable-reverb')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        after = settings(self.cfg/'app.fixture')
+        for key in ('APP_KEY', 'IMAGE_PARSER_SHARED_SECRET'):
+            self.assertEqual(before[key], after[key])
+        self.assertEqual(after['BROADCAST_CONNECTION'], 'reverb')
+        self.assertTrue(after['REVERB_APP_SECRET'])
+        self.assertNotIn(after['REVERB_APP_SECRET'],
+                         (after['APP_KEY'], after.get('ARTIFACT_URL_SIGNING_KEY', '')))
+        # Both public origins must equal the app origin; the internal publish
+        # target is the reverb container, never the artifact host.
+        self.assertEqual(after['REVERB_PUBLIC_URL'], after['APP_URL'])
+        self.assertEqual(after['REVERB_ALLOWED_ORIGINS'], after['APP_URL'])
+        self.assertEqual(after['REVERB_HOST'], 'artifactflow-reverb')
+        self.assertEqual(after['REVERB_APP_RATE_LIMITING_ENABLED'], 'true')
+        self.assertTrue((self.units/'artifactflow-reverb.container').exists())
+        calls = self.calls()
+        doctor = next(i for i, c in enumerate(calls) if any('artifactflow:doctor' in a for a in c))
+        self.assertTrue(any(c[:3] == ['systemctl', '--user', 'restart'] and 'artifactflow-reverb' in c[3:]
+                            for c in calls[:doctor]), 'reverb restarted before doctor')
+        # Idempotent: re-enabling keeps the same secret and the same config.
+        result = self.run_script('install.sh', '--enable-reverb')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(after, settings(self.cfg/'app.fixture'))
+
+    def test_enable_reverb_is_not_committed_when_image_verification_fails(self):
+        self.existing()
+        before = (self.cfg/'app.fixture').read_bytes()
+        self.env['AF_TEST_VERIFY_EXIT'] = '1'
+        result = self.run_script('install.sh', '--enable-reverb')
+        self.assertNotEqual(result.returncode, 0)
+        # A failed attestation must not leave BROADCAST_CONNECTION=reverb behind
+        # without the reverb unit, and must not install or start anything.
+        self.assertEqual(before, (self.cfg/'app.fixture').read_bytes())
+        self.assertFalse((self.units/'artifactflow-reverb.container').exists())
+        self.assertFalse(any(c[0] == 'systemctl' for c in self.calls()))
+
     def test_missing_docx_pin_leaves_dependency_disabled(self):
         self.existing()
         p = self.repo/'processor-images.lock'
