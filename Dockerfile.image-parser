@@ -1,4 +1,4 @@
-# Image parser for the pinned release (v0.3.5, commit below). On every
+# Image parser for the pinned release (v0.3.8, commit below). On every
 # release bump: update ARTIFACTFLOW_COMMIT to the new tag's **commit SHA**
 # (tags are mutable references and a source tarball carries no signature, so
 # the immutable SHA is the strongest pin available for a source archive),
@@ -12,8 +12,8 @@
 #   podman build -f Dockerfile.image-parser \
 #     -t localhost/artifactflow-image-parser:pinned .
 #
-# v0.3.5 = tag commit 2ab9ac44a52af52f142a69366c156a86e9b2d2e3
-ARG ARTIFACTFLOW_COMMIT=2ab9ac44a52af52f142a69366c156a86e9b2d2e3
+# v0.3.8 = tag commit 50d0df11093e1594c37f93a4cf041b66f60c2635
+ARG ARTIFACTFLOW_COMMIT=50d0df11093e1594c37f93a4cf041b66f60c2635
 
 FROM alpine:3.22 AS source
 ARG ARTIFACTFLOW_COMMIT
@@ -23,7 +23,7 @@ RUN mkdir -p /src \
 
 # Keep everything below in sync with the `image-parser` stage of the release's
 # root Dockerfile (base digest, packages, user, limits).
-FROM php:8.5.9-cli-alpine3.24@sha256:0554eb53778b5316f6b9a3447c9dfa3cf2141c0c02ff816c42cdc9aa240a34aa
+FROM php:8.5.12-cli-alpine3.24@sha256:eef5baa8671b37f2909d4b2f1849ea663df6ff4fe8936f102208ce54f1e32e01
 
 RUN apk add --no-cache --virtual .image-parser-build-deps \
         $PHPIZE_DEPS \
