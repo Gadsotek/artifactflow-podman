@@ -2,7 +2,7 @@
 # Empty values mean that the pinned release did not publish that processor; the
 # installer and deploy script fail closed if an operator tries to enable it.
 #
-# Pinned release: ArtifactFlow v0.3.9
-PDF_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-pdf-processor@sha256:53f163206e3f7006f7c07c5ffd49409b324a0a2ae42c6ebcbba9b5c1d7615aa8
-XLSX_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-xlsx-processor@sha256:441849326ebd0af722b722fab87c5cbcefa09f3a9fb75f9a4e6a777a6489f0d7
-DOCX_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-docx-processor@sha256:90d3b59dc227000f0d87395d793e928529798cc8183c103ab7bed3e8457a151f
+# Pinned release: ArtifactFlow v1.0.0
+PDF_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-pdf-processor@sha256:30f49f769a3a3eb66965ef2509725330a768b4c774c1a59483381e07079ddecd
+XLSX_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-xlsx-processor@sha256:8bbb676834be5a725f0474fd85727972336f6af78866eb2e11227b1c33324068
+DOCX_PROCESSOR_IMAGE=ghcr.io/gadsotek/artifactflow-docx-processor@sha256:e40e691b5b39693f1e3b197098aa59fba6d37820b53302876ec170d937e7f4b3
