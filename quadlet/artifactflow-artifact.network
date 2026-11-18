@@ -1,0 +1,10 @@
+# Artifact-host can reach only PostgreSQL on this internal network. It has no
+# route to app roles or the internet; PostgreSQL also joins artifactflow.network
+# to serve the app, worker, scheduler, and optional Reverb roles.
+[Unit]
+Description=ArtifactFlow artifact-host database network
+
+[Network]
+NetworkName=artifactflow-artifact
+Driver=bridge
+Internal=true

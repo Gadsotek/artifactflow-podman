@@ -71,9 +71,10 @@ This kit applies the release's runtime contract to one VM:
 - **Restricted artifact-host database role.** The artifact-host unit overrides
   `DB_USERNAME`/`DB_PASSWORD` via `~/.config/artifactflow/artifact-host.env` with a
   standalone role granted only what the reviewed manifest
-  (`docs/operations/artifact-host-database-grants.sql` at the pinned release
-  tag) allows: page/version/share reads, `UPDATE (updated_at)` for its lock
-  paths, and the separate artifact rate-limit tables.
+  (`docs/operations/artifact-host-database-grants.sql` at the pinned source
+  commit) allows: page/version/share reads, `UPDATE (updated_at)` for its lock
+  paths, and the separate artifact rate-limit tables. The guided installer
+  requires the manifest's `artifactflow_artifact_host` role name.
 - **Isolated image parser.** The app reaches it through a private Unix socket
   with `Network=none`. Each parser has its own socket volume. The app joins
   socket GIDs 10001–10004 through separate Quadlet `GroupAdd=` entries;
@@ -89,7 +90,8 @@ This kit applies the release's runtime contract to one VM:
 | Unit | Role | Image | Port (loopback) | Volumes |
 | --- | --- | --- | --- | --- |
 | `artifactflow-app` | `app` | release digest | `127.0.0.1:8080` | storage rw, db-ca + processor sockets ro |
-| `artifactflow-artifact-host` | `artifact-host` | release digest | `127.0.0.1:8081` | storage **ro**, db-ca ro |
+| `artifactflow-artifact-host` | `artifact-host` | release digest | internal `:8081` | storage **ro**, db-ca ro |
+| `artifactflow-artifact-ingress` | fixed HTTP relay | local image-parser build | `127.0.0.1:8081` | none |
 | `artifactflow-worker` | `worker` | release digest | none | db-ca ro |
 | `artifactflow-scheduler` | `scheduler` | release digest | none | db-ca ro |
 | `artifactflow-reverb` | `worker` (runs `reverb:start`; opt-in) | release digest | `127.0.0.1:8082` | db-ca ro |
@@ -102,15 +104,22 @@ This kit applies the release's runtime contract to one VM:
 | `artifactflow-*-processor-socket-init` | one-shot socket owners (opt-in) | matching processor | none | matching socket rw |
 
 Each document processor and its initializer is installed only when enabled.
-The image parser and its initializer are always installed. Application roles
-and PostgreSQL join `artifactflow`; all parsers use `Network=none`. The old
+The image parser, its initializer, and the credential-free artifact ingress
+relay are always installed. Application roles and PostgreSQL join
+`artifactflow`. The artifact host joins only the internal
+`artifactflow-artifact` database network and internal
+`artifactflow-artifact-ingress` relay network. The relay alone also joins the
+non-internal `artifactflow-edge` network and publishes the artifact origin on
+host loopback. It forwards TCP only to the artifact host's fixed address, with
+no app, database, parser, or storage credentials. The artifact host has no
+default route to app roles or the internet. All parsers use `Network=none`. The old
 `artifactflow-parser` network definition is retained for older installations,
 but no current container joins it.
 
 ## Prerequisites
 
 1. A native **amd64 Linux VM** with cgroups v2 and **Podman ≥ 5.0** (Quadlet
-   `.image` units, pasta networking),
+   `.image` units and Netavark/Aardvark-DNS),
    nginx, and certbot (`python3-certbot-nginx`). Any systemd distribution
    works; package names below are Debian/Ubuntu.
 2. Two DNS records pointing at the VM: the app hostname (e.g.
@@ -168,6 +177,15 @@ plus realtime (Reverb). All default to off; use `--enable-pdf`, `--enable-xlsx`,
 `--enable-docx`, or `--enable-reverb` for an explicit non-interactive selection
 (DOCX includes PDF). It preserves existing secrets unless `--reconfigure` is
 supplied.
+It checks that both artifact-host networks are internal, the configured
+database role can read pages, the restarted artifact host has exactly those
+two networks, and nginx's loopback connection through the
+relay returns the artifact origin's expected `/login` 404 before reporting
+success.
+An existing installation's PostgreSQL container is restarted once if it still
+lacks the artifact network; this briefly interrupts database connections. A
+legacy artifact host still on the app network is stopped before the new units
+are installed, so a failed preflight leaves its public surface unavailable.
 
 To enable all three document formats on a new or existing installation:
 
@@ -242,8 +260,9 @@ podman build -f Dockerfile.image-parser -t localhost/artifactflow-image-parser:p
 # Quadlet units. The guided installer copies only explicitly enabled processor
 # units; do the same for a manual installation.
 mkdir -p ~/.config/containers/systemd
-cp quadlet/artifactflow-{app,artifact-host,image-parser,image-parser-socket-init,postgres,scheduler,storage-init,worker}.container \
-   quadlet/artifactflow.network \
+cp quadlet/artifactflow-{app,artifact-host,artifact-ingress,image-parser,image-parser-socket-init,postgres,scheduler,storage-init,worker}.container \
+   quadlet/artifactflow.network quadlet/artifactflow-artifact.network \
+   quadlet/artifactflow-artifact-ingress.network quadlet/artifactflow-edge.network \
    quadlet/artifactflow-release.image \
    ~/.config/containers/systemd/
 systemctl --user daemon-reload
@@ -280,20 +299,35 @@ systemctl --user daemon-reload
 4. **Restricted artifact-host database role**, the migration just created
    the tables the grant manifest references. Create the role with the
    password from `~/.config/artifactflow/artifact-host.env`, then apply the
-   reviewed manifest from the pinned release tag:
+   reviewed manifest from the pinned source commit in
+   `Dockerfile.image-parser`. Stop if the download is missing or empty; do not
+   start the artifact host without these table grants:
 
    ```sh
-   podman exec -it artifactflow-postgres psql -U artifactflow_app -d artifactflow \
-     -c "CREATE ROLE artifactflow_artifact_host LOGIN PASSWORD '<password from artifact-host.env>'" \
-     -c "GRANT CONNECT ON DATABASE artifactflow TO artifactflow_artifact_host"
-   curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/v1.0.0/docs/operations/artifact-host-database-grants.sql \
-     | podman exec -i artifactflow-postgres psql -U artifactflow_app -d artifactflow -f -
+   (
+   set -euo pipefail
+   db_pw="$(sed -n 's/^DB_PASSWORD=//p' ~/.config/artifactflow/artifact-host.env)"
+   [ -n "$db_pw" ]
+   db_pw_sql="$(printf '%s' "$db_pw" | sed "s/'/''/g")"
+   printf "CREATE ROLE artifactflow_artifact_host LOGIN PASSWORD '%s';\nGRANT CONNECT ON DATABASE artifactflow TO artifactflow_artifact_host;\n" "$db_pw_sql" |
+     podman exec -i artifactflow-postgres psql -v ON_ERROR_STOP=1 --single-transaction -U artifactflow_app -d artifactflow -f -
+   grants_sql="$(curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/e8d4d44962f9c698806a830191763210a79e516c/docs/operations/artifact-host-database-grants.sql)"
+   [ -n "$grants_sql" ]
+   printf '%s\n' "$grants_sql" |
+     podman exec -i artifactflow-postgres psql -v ON_ERROR_STOP=1 --single-transaction -U artifactflow_app -d artifactflow -f -
+   printf '%s\n' "$db_pw" | podman exec -i artifactflow-postgres sh -c '
+     IFS= read -r PGPASSWORD
+     export PGPASSWORD
+     exec psql -X -w -qAt -h 127.0.0.1 -U artifactflow_artifact_host \
+       -d artifactflow -v ON_ERROR_STOP=1 -c "SELECT 1 FROM public.pages LIMIT 0"
+   '
+   )
    ```
 
-5. **Artifact surface** (started only after the grants exist):
+5. **Artifact surface and ingress relay** (started only after the grants exist):
 
    ```sh
-   systemctl --user start artifactflow-artifact-host
+   systemctl --user start artifactflow-artifact-host artifactflow-artifact-ingress
    ```
 
 6. **Workers** (started only now, so they never crash-loop on the missing
@@ -381,12 +415,17 @@ old transport before restarting services. Do not use `--reconfigure`.
    processor references in `processor-images.lock`, and both pinned-release
    comments. Update `ARTIFACTFLOW_COMMIT` and the PHP base digest in
    `Dockerfile.image-parser` from the new tag.
-4. Copy the changed quadlet files to `~/.config/containers/systemd/`, then:
+4. Copy the changed quadlet files to `~/.config/containers/systemd/`. When
+   adopting the separate artifact-host network on an existing installation,
+   restart PostgreSQL first so it joins both networks; this briefly interrupts
+   database connections. Then restart the application roles:
 
    ```sh
    systemctl --user daemon-reload
+   systemctl --user restart artifactflow-postgres
    systemctl --user restart artifactflow-image-parser artifactflow-app \
-     artifactflow-artifact-host artifactflow-worker artifactflow-scheduler
+     artifactflow-artifact-host artifactflow-artifact-ingress \
+     artifactflow-worker artifactflow-scheduler
    ```
 
    With `RUN_MIGRATIONS=1`, the app migrates on boot under the isolation
@@ -394,7 +433,7 @@ old transport before restarting services. Do not use `--reconfigure`.
    finishes; it self-heals through `Restart=always`.
 5. If the release notes change
    `docs/operations/artifact-host-database-grants.sql`, re-apply it from the
-   new tag (command in First boot step 4) after the migration.
+   new pinned source commit (command in First boot step 4) after the migration.
 
 Commit the digest bump here so the repo stays the record of what runs.
 
@@ -406,7 +445,8 @@ Both halves are automated while keeping a human between them:
   image attestations, and opens the coherent digest-bump PR. The PR body
   carries the release link, all image references, plus diffs
   of the artifact-host grants manifest and `.env.production.example` between
-  the tags, so new required configuration is visible before merge. A failed
+  the pinned source commits, so new required configuration is visible before
+  merge. A failed
   attestation produces no PR.
 - `./deploy.sh`, run on the VM as `artifactflow`, applies the merged state:
   pull, re-verify the application and enabled processor attestations (or

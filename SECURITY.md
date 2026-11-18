@@ -22,7 +22,27 @@ by digest.
   separate, standalone PostgreSQL role granted only what the release's reviewed
   manifest allows (page/version/share reads, `UPDATE(updated_at)` for its lock
   paths, the artifact rate-limit tables). It cannot touch app write, auth, or
-  limiter state.
+  limiter state. The installer downloads that manifest by the pinned source
+  commit, applies it in one transaction, and stops before starting the artifact
+  host if download or SQL execution fails. It also rejects a role name that
+  differs from the manifest and verifies a table read using that role's
+  configured password.
+- **Artifact-host network isolation.** The artifact host joins only the
+  internal `artifactflow-artifact` database network and internal
+  `artifactflow-artifact-ingress` network. PostgreSQL joins the database and
+  application networks; the app, worker, scheduler, and optional Reverb stay
+  off both artifact networks. A credential-free TCP relay joins the internal
+  ingress network and a separate edge network, then publishes host loopback
+  port 8081. Its only upstream is the artifact host, and IPv4 forwarding is
+  disabled in both dual-network container namespaces. This keeps the artifact
+  host's database path without giving it a route to app roles or the internet.
+  Verify effective attachments, gateway behavior, and egress denial on the
+  target VM. The installer/deployer require Netavark, verify both artifact
+  networks are internal, and require the configured artifact origin's `/login`
+  404 through nginx's loopback path before success. They inspect the restarted
+  artifact host's effective attachments and stop it if either is wrong. During
+  upgrades they stop a legacy artifact host still attached to the app network
+  before replacing its Quadlet.
 - **Isolated image parser.** The parser uses a private Unix socket and
   `Network=none`, just like the document processors. Socket mode is `0660`;
   only the app receives a socket mount and its group. Other roles pin every

@@ -130,6 +130,11 @@ case "$(uname -s):$(uname -m)" in
   Linux:x86_64) ;;
   *) die "Use a native amd64 Linux systemd host. Processor seccomp checks do not support emulation." ;;
 esac
+network_backend="$(podman info --format '{{.Host.NetworkBackend}}')" || \
+  die "Could not inspect the Podman network backend."
+[ "$network_backend" = "netavark" ] || \
+  die "The isolated artifact network requires the Podman Netavark backend."
+command -v curl >/dev/null 2>&1 || die "curl is required to verify the artifact-host loopback port."
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
 cd "$(dirname "$0")"
@@ -166,6 +171,12 @@ fi
 
 app_env="$CFG/app.env"
 [ -f "$app_env" ] || die "Run ./install.sh before deploying."
+artifact_url="$(read_value ARTIFACT_URL "$app_env")"
+case "$artifact_url" in
+  https://*) artifact_host="${artifact_url#https://}"; artifact_host="${artifact_host%%/*}" ;;
+  *) die "ARTIFACT_URL must be an HTTPS artifact hostname." ;;
+esac
+[ -n "$artifact_host" ] || die "ARTIFACT_URL has no artifact hostname."
 [ "$(read_value IMAGE_PARSER_SOCKET_PATH "$app_env")" = "/run/artifactflow/image-parser/parser.sock" ] || \
   die "This release requires the image-parser socket. Run ./install.sh --no-admin once; it preserves existing secrets."
 pdf_enabled=0
@@ -201,6 +212,20 @@ podman pull "ghcr.io/gadsotek/artifactflow@sha256:$digest"
 if [ "$pdf_enabled" = "1" ]; then prepare_processor_image PDF; fi
 if [ "$xlsx_enabled" = "1" ]; then prepare_processor_image XLSX; fi
 if [ "$docx_enabled" = "1" ]; then prepare_processor_image DOCX; fi
+
+# A failed network preflight must not leave the legacy artifact-host running
+# on the application network after this upgrade attempt.
+if podman container exists artifactflow-artifact-host; then
+  legacy_host_networks="$(podman inspect -f '{{json .NetworkSettings.Networks}}' artifactflow-artifact-host)" || \
+    die "Could not inspect the existing artifact-host network attachments."
+  if printf '%s\n' "$legacy_host_networks" | grep -Fq '"artifactflow"'; then
+    echo "Stopping the legacy artifact-host before isolating its network..."
+    systemctl --user stop artifactflow-artifact-host
+  fi
+else
+  exists_status=$?
+  [ "$exists_status" = 1 ] || die "Could not check whether a legacy artifact-host container exists."
+fi
 
 echo "Installing quadlet units..."
 mkdir -p "$HOME/.config/containers/systemd"
@@ -242,6 +267,28 @@ for u in "$HOME/.config/containers/systemd"/*.container; do
   sed -i "s|^Volume=/etc/artifactflow/db-ca.pem:|Volume=$CFG/db-ca.pem:|" "$u"
 done
 systemctl --user daemon-reload
+systemctl --user start artifactflow-artifact-network artifactflow-artifact-ingress-network
+for network in artifactflow-artifact artifactflow-artifact-ingress; do
+  network_internal="$(podman network inspect --format '{{.Internal}}' "$network")" || \
+    die "Could not inspect the $network network."
+  [ "$network_internal" = "true" ] || \
+    die "$network exists without Internal=true; refusing to restart artifact-host."
+done
+
+# Older installations have a running PostgreSQL container attached only to
+# artifactflow.network. Restart it once with the updated Quadlet before the
+# artifact host moves to its isolated, internal network.
+postgres_networks="$(podman inspect -f '{{json .NetworkSettings.Networks}}' artifactflow-postgres)" || \
+  die "Could not inspect PostgreSQL network attachments."
+if ! printf '%s\n' "$postgres_networks" | grep -Fq '"artifactflow-artifact"'; then
+  echo "Reattaching PostgreSQL to the isolated artifact network..."
+  systemctl --user restart artifactflow-postgres
+  wait_healthy artifactflow-postgres
+fi
+postgres_networks="$(podman inspect -f '{{json .NetworkSettings.Networks}}' artifactflow-postgres)" || \
+  die "Could not inspect PostgreSQL network attachments."
+printf '%s\n' "$postgres_networks" | grep -Fq '"artifactflow-artifact"' || \
+  die "PostgreSQL did not join the isolated artifact database network."
 
 echo "Restarting enabled processors..."
 if [ "$pdf_enabled" = "1" ]; then
@@ -262,7 +309,19 @@ fi
 
 echo "Restarting application services..."
 systemctl --user restart artifactflow-image-parser artifactflow-app \
-  artifactflow-artifact-host artifactflow-worker artifactflow-scheduler
+  artifactflow-artifact-host artifactflow-artifact-ingress \
+  artifactflow-worker artifactflow-scheduler
+host_networks="$(podman inspect -f '{{json .NetworkSettings.Networks}}' artifactflow-artifact-host)" || \
+  die "Could not inspect the restarted artifact-host networks."
+host_network_count="$(podman inspect -f '{{len .NetworkSettings.Networks}}' artifactflow-artifact-host)" || \
+  die "Could not count the restarted artifact-host networks."
+if [ "$host_network_count" != 2 ] || \
+   ! printf '%s\n' "$host_networks" | grep -Fq '"artifactflow-artifact"' || \
+   ! printf '%s\n' "$host_networks" | grep -Fq '"artifactflow-artifact-ingress"'; then
+  systemctl --user stop artifactflow-artifact-ingress artifactflow-artifact-host || \
+    die "Could not stop the misnetworked artifact-host."
+  die "The artifact-host did not start on exactly its two internal networks."
+fi
 if [ "$reverb_enabled" = "1" ]; then
   systemctl --user restart artifactflow-reverb
 fi
@@ -270,6 +329,13 @@ fi
 echo "Waiting for HTTP surfaces to report healthy..."
 wait_healthy artifactflow-app 36
 wait_healthy artifactflow-artifact-host 36
+wait_healthy artifactflow-artifact-ingress 36
+artifact_status="$(curl --noproxy '*' --silent --show-error --max-time 5 \
+  --header "Host: $artifact_host" --output /dev/null --write-out '%{http_code}' \
+  http://127.0.0.1:8081/login)" || \
+  die "The artifact-host loopback port is unreachable from nginx's host."
+[ "$artifact_status" = 404 ] || \
+  die "The artifact-host relay returned HTTP $artifact_status instead of its expected /login 404."
 if [ "$reverb_enabled" = "1" ]; then
   wait_healthy artifactflow-reverb 36
 fi

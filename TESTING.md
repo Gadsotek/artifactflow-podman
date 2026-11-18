@@ -6,7 +6,8 @@ server, top to bottom. Use non-sensitive test content only.
 
 ## Environment
 
-- [ ] Fresh native amd64 Linux VM, systemd, cgroups v2, Podman >= 5.0,
+- [ ] Fresh native amd64 Linux VM, systemd, cgroups v2, Podman >= 5.0 with
+      Netavark/Aardvark-DNS (`podman info --format '{{.Host.NetworkBackend}}'`),
       nginx, certbot installed.
 - [ ] Two DNS records you control, on **different hostnames** (ideally a
       registrable domain separate from your other apps for the artifact origin),
@@ -34,15 +35,34 @@ server, top to bottom. Use non-sensitive test content only.
 - [ ] App becomes healthy; first migration runs.
 - [ ] Restricted `artifactflow_artifact_host` role is created and grants apply
       without error.
-- [ ] artifact-host, worker, scheduler start; artifact-host becomes healthy.
+- [ ] The grants download uses the pinned `ARTIFACTFLOW_COMMIT`; a failed or
+      empty download, or rejected SQL, stops installation before artifact-host
+      starts and does not print `DONE`.
+- [ ] The configured artifact-host role is the pinned manifest's role and can
+      run `SELECT 1 FROM public.pages LIMIT 0` with its own password; a failed
+      read stops installation before artifact-host starts.
+- [ ] artifact-host, ingress relay, worker, scheduler start; artifact-host and
+      relay become healthy.
 - [ ] Admin creation succeeds; `artifactflow:doctor` runs (the
       `TRUSTED_PROXIES=REMOTE_ADDR` warning is expected).
 - [ ] `RUN_MIGRATIONS=1` is set and the app restarts healthy.
 - [ ] Final block prints the correct hostnames and server IP.
+- [ ] `podman network inspect` reports `artifactflow-artifact` and
+      `artifactflow-artifact-ingress` as internal. `podman inspect` shows
+      artifact-host on those two networks only, PostgreSQL on
+      `artifactflow-artifact` and `artifactflow`, and the credential-free relay
+      on `artifactflow-artifact-ingress` and `artifactflow-edge` only. App,
+      worker, scheduler, and optional Reverb join `artifactflow` only.
+- [ ] A direct host request to `http://127.0.0.1:8081/login` with the configured
+      artifact `Host` header returns 404 after the relay starts. The
+      installer/deployer must fail if forwarding hangs or returns another
+      status.
 - [ ] PDF, XLSX, and DOCX prompts default to no; `--enable-pdf`,
       `--enable-xlsx`, and `--enable-docx` preserve unrelated secrets.
 - [ ] Enabling DOCX also enables PDF. Enabling a format absent from
       `processor-images.lock` fails before changing its feature flag.
+- [ ] A failed application or processor attestation leaves existing processor
+      flags and secrets unchanged; no newly selected processor is started.
 - [ ] `--enable-reverb` sets `BROADCAST_CONNECTION=reverb`, generates a
       dedicated `REVERB_APP_SECRET`, pins `REVERB_PUBLIC_URL` and
       `REVERB_ALLOWED_ORIGINS` to `APP_URL`, installs `artifactflow-reverb`, and
@@ -76,6 +96,22 @@ server, top to bottom. Use non-sensitive test content only.
       app session cookie is sent to the artifact host.
 - [ ] The app hostname and artifact hostname are different hosts (not just
       ports).
+
+## Artifact-host network boundary
+
+With both HTTP roles healthy on a native Podman VM, obtain the app container's
+`artifactflow` network IP from `podman inspect artifactflow-app`. From the app
+or worker container, a connection to `<app-IP>:8080` must succeed. From
+`artifactflow-artifact-host`, a connection to that same IP and port must fail.
+Also probe both internal networks' bridge gateways, the relay's internal
+address, and the public app hostname through host nginx, sending the app
+`Host` header: no path may proxy to the app. A direct outbound public IP
+connection from artifact-host must fail, not merely a public DNS lookup.
+Confirm `/proc/sys/net/ipv4/ip_forward` is `0` inside both artifact-host and
+relay and that neither forwards packets between its interfaces.
+`artifactflow-postgres` must still resolve, and a saved artifact
+preview loads through the artifact hostname. Check outbound mail from the
+worker. Record the effective network and routing evidence.
 
 ## Document processor gate (for every enabled format)
 

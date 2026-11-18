@@ -1,0 +1,9 @@
+# Private HTTP link between the artifact host and its credential-free ingress
+# relay. The artifact host is attached only to this and the internal DB network.
+[Unit]
+Description=ArtifactFlow artifact-host ingress network
+
+[Network]
+NetworkName=artifactflow-artifact-ingress
+Driver=bridge
+Internal=true

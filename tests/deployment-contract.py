@@ -16,6 +16,56 @@ def unit(name):
 
 
 class DeploymentContract(unittest.TestCase):
+    def test_artifact_host_has_only_internal_database_and_ingress_networks(self):
+        artifact_network = unit("artifactflow-artifact.network")
+        self.assertEqual(artifact_network["Driver"], ["bridge"])
+        self.assertEqual(artifact_network["Internal"], ["true"])
+        self.assertEqual(artifact_network["NetworkName"], ["artifactflow-artifact"])
+        ingress_network = unit("artifactflow-artifact-ingress.network")
+        self.assertEqual(ingress_network["Driver"], ["bridge"])
+        self.assertEqual(ingress_network["Internal"], ["true"])
+        self.assertEqual(ingress_network["NetworkName"], ["artifactflow-artifact-ingress"])
+
+        artifact_host = unit("artifactflow-artifact-host.container")
+        self.assertEqual(set(artifact_host["Network"]),
+                         {"artifactflow-artifact.network", "artifactflow-artifact-ingress.network"})
+        self.assertNotIn("PublishPort", artifact_host)
+        self.assertEqual(artifact_host["Sysctl"], ["net.ipv4.ip_forward=0"])
+        self.assertEqual(set(unit("artifactflow-postgres.container")["Network"]),
+                         {"artifactflow.network", "artifactflow-artifact.network"})
+        for role in ("app", "worker", "scheduler", "reverb"):
+            self.assertEqual(unit(f"artifactflow-{role}.container")["Network"],
+                             ["artifactflow.network"])
+
+    def test_artifact_origin_is_published_only_by_credential_free_relay(self):
+        edge_network = unit("artifactflow-edge.network")
+        self.assertEqual(edge_network["Driver"], ["bridge"])
+        self.assertNotIn("Internal", edge_network)
+        self.assertEqual(edge_network["NetworkName"], ["artifactflow-edge"])
+
+        relay = unit("artifactflow-artifact-ingress.container")
+        self.assertEqual(relay["Image"], ["localhost/artifactflow-image-parser:pinned"])
+        self.assertEqual(relay["Pull"], ["never"])
+        self.assertEqual(relay["Entrypoint"], ["/usr/bin/socat"])
+        self.assertEqual(relay["Exec"], ["TCP4-LISTEN:8081,bind=0.0.0.0,reuseaddr,fork "
+                                         "TCP4:artifactflow-artifact-host:8081"])
+        self.assertEqual(relay["Network"],
+                         ["artifactflow-edge.network", "artifactflow-artifact-ingress.network"])
+        self.assertEqual(relay["PublishPort"], ["127.0.0.1:8081:8081"])
+        self.assertNotIn("Volume", relay)
+        self.assertNotIn("EnvironmentFile", relay)
+        self.assertNotIn("Environment", relay)
+        self.assertEqual(relay["User"], ["10001:10001"])
+        self.assertEqual(relay["ReadOnly"], ["true"])
+        self.assertEqual(relay["DropCapability"], ["ALL"])
+        self.assertEqual(relay["Sysctl"], ["net.ipv4.ip_forward=0"])
+        self.assertEqual(relay["NoNewPrivileges"], ["true"])
+        self.assertIn("socat", relay["HealthCmd"][0])
+        self.assertIn("artifactflow-artifact-host:8081", relay["Exec"][0])
+        self.assertNotIn("healthcheck.php", relay["HealthCmd"][0])
+        self.assertIn("[234]", relay["HealthCmd"][0])
+        self.assertIn("artifactflow-artifact-host.service", relay["Requires"])
+
     def test_app_can_connect_to_private_document_sockets(self):
         app = unit("artifactflow-app.container")
         for gid in ("10002", "10003", "10004"):

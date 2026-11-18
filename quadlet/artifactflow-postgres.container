@@ -13,9 +13,10 @@ Description=ArtifactFlow PostgreSQL (TLS, deployment-private CA)
 ContainerName=artifactflow-postgres
 Image=localhost/artifactflow-postgres:17
 Network=artifactflow.network
+Network=artifactflow-artifact.network
 EnvironmentFile=/etc/artifactflow/postgres.env
 # Must match the DNS name the app connects to (the container name on the
-# artifactflow network), verify-full checks the certificate hostname.
+# app and artifact networks), verify-full checks the certificate hostname.
 Environment=DB_SERVER_DOMAIN=artifactflow-postgres
 Volume=artifactflow-db:/var/lib/postgresql/data
 HealthCmd=sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
