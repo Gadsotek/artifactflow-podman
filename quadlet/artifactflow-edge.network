@@ -1,0 +1,8 @@
+# The credential-free relay uses this bridge for nginx's loopback port publish.
+# The artifact host itself never joins this network.
+[Unit]
+Description=ArtifactFlow artifact-host edge network
+
+[Network]
+NetworkName=artifactflow-edge
+Driver=bridge

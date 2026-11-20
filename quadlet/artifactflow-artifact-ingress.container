@@ -1,0 +1,46 @@
+# Publish the artifact origin from a credential-free relay rather than directly
+# from the internal-only artifact-host container. Socat is already present in
+# the locally built, pinned image-parser image. Its fixed upstream is the
+# artifact-host name on the private ingress network; it has no app environment,
+# database credentials, parser credentials, or storage mounts.
+[Unit]
+Description=ArtifactFlow artifact-host ingress relay
+Requires=artifactflow-artifact-host.service
+After=artifactflow-artifact-host.service
+
+[Container]
+ContainerName=artifactflow-artifact-ingress
+Image=localhost/artifactflow-image-parser:pinned
+Pull=never
+Entrypoint=/usr/bin/socat
+Exec=TCP4-LISTEN:8081,bind=0.0.0.0,reuseaddr,fork TCP4:artifactflow-artifact-host:8081
+Network=artifactflow-edge.network
+Network=artifactflow-artifact-ingress.network
+PublishPort=127.0.0.1:8081:8081
+User=10001:10001
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+# The relay is dual-homed for host ingress. Never let its network namespace
+# route packets between the internal artifact link and the edge bridge.
+Sysctl=net.ipv4.ip_forward=0
+# Socat forks per connection; leave room for concurrent previews and downloads
+# while bounding a stalled-client flood independently from the app role.
+PidsLimit=512
+PodmanArgs=--memory=512m --cpus=1
+# Override the source image's parser healthcheck. A 2xx-4xx HTTP response
+# proves the relay reaches an HTTP server; 5xx and connection failures cannot
+# mark it healthy. The installer/deployer separately require /login=404 with
+# the configured artifact Host header, which this secret-free unit does not hold.
+HealthCmd=sh -c 'printf "HEAD /login HTTP/1.0\r\nHost: artifactflow-artifact-host\r\nConnection: close\r\n\r\n" | socat -T 3 - TCP4:127.0.0.1:8081,connect-timeout=3 | grep -Eq "^HTTP/[0-9.]+ [234][0-9][0-9]"'
+HealthInterval=15s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=30s
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

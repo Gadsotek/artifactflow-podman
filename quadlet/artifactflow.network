@@ -1,4 +1,4 @@
-# Application network: app, artifact-host, worker, scheduler, postgres.
+# Application network: app, worker, scheduler, optional Reverb, postgres.
 # A user-defined network gives containers DNS by container name
 # (DB_HOST=artifactflow-postgres resolves here).
 [Unit]

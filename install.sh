@@ -144,17 +144,25 @@ ensure_processor_env() {
   fi
 }
 
-enable_processor_config() {
+stage_processor_config() {
   local kind="$1" secret lower
   require_processor_image "$kind"
   ensure_processor_env "$kind"
   lower="$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]')"
   secret="$(gen_secret)"
-  set_env "${kind}_PROCESSOR_ENABLED" "true" "$CFG/app.env"
-  set_env "${kind}_PROCESSOR_URL" "http://localhost" "$CFG/app.env"
-  set_env "${kind}_PROCESSOR_SOCKET_PATH" "/run/artifactflow/$lower-processor/processor.sock" "$CFG/app.env"
-  set_env "${kind}_PROCESSOR_SHARED_SECRET" "$secret" "$CFG/app.env"
   set_env "${kind}_PROCESSOR_SHARED_SECRET" "$secret" "$CFG/$lower-processor.env"
+  PENDING_SECRETS["$kind"]="$secret"
+}
+
+commit_processor_config() { # commit_processor_config KIND staged-app-env
+  local kind="$1" file="$2" lower secret
+  lower="$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]')"
+  secret="${PENDING_SECRETS[$kind]:-}"
+  [ -n "$secret" ] || die "Missing staged $kind processor secret."
+  set_env "${kind}_PROCESSOR_URL" "http://localhost" "$file"
+  set_env "${kind}_PROCESSOR_SOCKET_PATH" "/run/artifactflow/$lower-processor/processor.sock" "$file"
+  set_env "${kind}_PROCESSOR_SHARED_SECRET" "$secret" "$file"
+  set_env "${kind}_PROCESSOR_ENABLED" "true" "$file"
 }
 
 sync_processor_env() {
@@ -258,10 +266,12 @@ esac
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 have podman  || die "podman not found (Podman 5.0+). Install it as root: apt install podman"
 have openssl || die "openssl not found."
+NETWORK_BACKEND="$(podman info --format '{{.Host.NetworkBackend}}')" || die "Could not inspect the Podman network backend."
+[ "$NETWORK_BACKEND" = "netavark" ] || die "The isolated artifact network requires the Podman Netavark backend."
 mkdir -p "$CFG" || die "Could not create config directory $CFG."
 chmod 0700 "$CFG"
 [ -w "$CFG" ] || die "Cannot write to $CFG."
-have curl || echo "Note: curl not found. You will have to apply the database grants manually (shown at the end)."
+have curl || die "curl not found; the pinned database grants cannot be installed."
 
 TAG="$(sed -n 's/^# Pinned release: ArtifactFlow \(v[0-9.]*\)$/\1/p' quadlet/artifactflow-release.image)"
 DIGEST="$(sed -n 's|^Image=ghcr.io/gadsotek/artifactflow@sha256:\([0-9a-f]*\)$|\1|p' quadlet/artifactflow-release.image)"
@@ -274,11 +284,18 @@ echo "Version: $TAG"
 
 SOURCE_COMMIT="$(sed -n 's/^ARG ARTIFACTFLOW_COMMIT=\([0-9a-f]*\)$/\1/p' Dockerfile.image-parser)"
 [ "${#SOURCE_COMMIT}" = "40" ] || die "Invalid pinned release source commit."
+GRANTS_URL="https://raw.githubusercontent.com/Gadsotek/artifactflow/$SOURCE_COMMIT/docs/operations/artifact-host-database-grants.sql"
+GRANTS_SQL="$(curl -fsSL "$GRANTS_URL")" || die "Could not download the pinned artifact-host database grants."
+[ -n "$GRANTS_SQL" ] || die "The pinned artifact-host database grants are empty."
 
 # ---------- 1) configuration ----------
 PDF_ENABLED=0
 XLSX_ENABLED=0
 DOCX_ENABLED=0
+PDF_PENDING=0
+XLSX_PENDING=0
+DOCX_PENDING=0
+declare -A PENDING_SECRETS=()
 REVERB_ENABLED=0
 if [ -f "$CFG/app.env" ] && [ "$RECONFIGURE" = "0" ]; then
   echo
@@ -287,6 +304,7 @@ if [ -f "$CFG/app.env" ] && [ "$RECONFIGURE" = "0" ]; then
   CREATE_ADMIN=0
   APP_HOST="$(read_env APP_URL "$CFG/app.env" | sed 's#^https\?://##')"
   ART_HOST="$(read_env ARTIFACT_URL "$CFG/app.env" | sed 's#^https\?://##')"
+  ART_HOST="${ART_HOST%%/*}"
   [ "$(read_env PDF_PROCESSOR_ENABLED "$CFG/app.env")" = "true" ] && PDF_ENABLED=1
   [ "$(read_env XLSX_PROCESSOR_ENABLED "$CFG/app.env")" = "true" ] && XLSX_ENABLED=1
   [ "$(read_env DOCX_PROCESSOR_ENABLED "$CFG/app.env")" = "true" ] && DOCX_ENABLED=1
@@ -303,17 +321,17 @@ if [ -f "$CFG/app.env" ] && [ "$RECONFIGURE" = "0" ]; then
 
   if [ "$ENABLE_PDF" = "1" ] && [ "$PDF_ENABLED" = "0" ]; then
     echo "== Enabling PDF (other secrets untouched)."
-    enable_processor_config PDF
+    PDF_PENDING=1
     PDF_ENABLED=1
   fi
   if [ "$ENABLE_XLSX" = "1" ] && [ "$XLSX_ENABLED" = "0" ]; then
     echo "== Enabling XLSX (other secrets untouched)."
-    enable_processor_config XLSX
+    XLSX_PENDING=1
     XLSX_ENABLED=1
   fi
   if [ "$ENABLE_DOCX" = "1" ] && [ "$DOCX_ENABLED" = "0" ]; then
     echo "== Enabling DOCX (other secrets untouched)."
-    enable_processor_config DOCX
+    DOCX_PENDING=1
     DOCX_ENABLED=1
   fi
   if [ "$ENABLE_REVERB" = "1" ] && [ "$REVERB_ENABLED" = "0" ]; then
@@ -432,20 +450,20 @@ else
   if [ "$DOCX_ENABLED" = "1" ]; then require_processor_image DOCX; fi
 
   if [ "$PDF_ENABLED" = "1" ]; then
-    enable_processor_config PDF
-    echo "  PDF enabled."
+    PDF_PENDING=1
+    echo "  PDF selected."
   else
     echo "  PDF left off; enable later with ./install.sh --enable-pdf"
   fi
   if [ "$XLSX_ENABLED" = "1" ]; then
-    enable_processor_config XLSX
-    echo "  XLSX enabled."
+    XLSX_PENDING=1
+    echo "  XLSX selected."
   else
     echo "  XLSX left off; enable later with ./install.sh --enable-xlsx"
   fi
   if [ "$DOCX_ENABLED" = "1" ]; then
-    enable_processor_config DOCX
-    echo "  DOCX enabled with its required PDF chain."
+    DOCX_PENDING=1
+    echo "  DOCX selected with its required PDF chain."
   else
     echo "  DOCX left off; enable later with ./install.sh --enable-docx"
   fi
@@ -477,19 +495,12 @@ fi
 set_env IMAGE_PARSER_URL "http://localhost" "$CFG/app.env"
 set_env IMAGE_PARSER_SOCKET_PATH "/run/artifactflow/image-parser/parser.sock" "$CFG/app.env"
 
-if [ "$PDF_ENABLED" = "1" ]; then
-  require_processor_image PDF
-  sync_processor_env PDF
-fi
-if [ "$XLSX_ENABLED" = "1" ]; then
-  require_processor_image XLSX
-  sync_processor_env XLSX
-fi
 if [ "$DOCX_ENABLED" = "1" ]; then
   [ "$PDF_ENABLED" = "1" ] || die "DOCX requires the PDF processor."
-  require_processor_image DOCX
-  sync_processor_env DOCX
 fi
+ARTHOST_DB_USER="$(read_env DB_USERNAME "$CFG/artifact-host.env")"
+[ "$ARTHOST_DB_USER" = artifactflow_artifact_host ] || \
+  die "The pinned grants manifest requires DB_USERNAME=artifactflow_artifact_host in artifact-host.env."
 
 # ---------- 2) local infrastructure images + pinned release images ----------
 echo
@@ -519,6 +530,19 @@ if [ "$XLSX_ENABLED" = "1" ]; then prepare_processor_image XLSX; fi
 if [ "$DOCX_ENABLED" = "1" ]; then prepare_processor_image DOCX; fi
 
 # ---------- 3) quadlet units ----------
+# Do not leave an old artifact-host attached to the application network if a
+# later unit registration or network preflight fails during this upgrade.
+if podman container exists artifactflow-artifact-host; then
+  legacy_host_networks="$(podman inspect -f '{{json .NetworkSettings.Networks}}' artifactflow-artifact-host)" || \
+    die "Could not inspect the existing artifact-host network attachments."
+  if grep -Fq '"artifactflow"' <<< "$legacy_host_networks"; then
+    echo "== Stopping the legacy artifact-host before isolating its network..."
+    systemctl --user stop artifactflow-artifact-host
+  fi
+else
+  exists_status=$?
+  [ "$exists_status" = 1 ] || die "Could not check whether a legacy artifact-host container exists."
+fi
 echo "== Installing quadlet units..."
 mkdir -p "$HOME/.config/containers/systemd"
 # Copy base units first. Processor units are installed only for formats that
@@ -561,6 +585,26 @@ for u in "$HOME/.config/containers/systemd"/*.container; do
   sed -i "s|^Volume=/etc/artifactflow/db-ca.pem:|Volume=$CFG/db-ca.pem:|" "$u"
 done
 systemctl --user daemon-reload
+systemctl --user start artifactflow-artifact-network artifactflow-artifact-ingress-network
+for network in artifactflow-artifact artifactflow-artifact-ingress; do
+  network_internal="$(podman network inspect --format '{{.Internal}}' "$network")" || \
+    die "Could not inspect the $network network."
+  [ "$network_internal" = "true" ] || \
+    die "$network exists without Internal=true; refusing to start artifact-host."
+done
+
+# Stage new processor credentials only in the matching processor env files.
+# The app's feature flags and connections remain unchanged until each selected
+# processor has also started and passed its container healthcheck.
+if [ "$PDF_ENABLED" = "1" ]; then
+  if [ "$PDF_PENDING" = "1" ]; then stage_processor_config PDF; else sync_processor_env PDF; fi
+fi
+if [ "$XLSX_ENABLED" = "1" ]; then
+  if [ "$XLSX_PENDING" = "1" ]; then stage_processor_config XLSX; else sync_processor_env XLSX; fi
+fi
+if [ "$DOCX_ENABLED" = "1" ]; then
+  if [ "$DOCX_PENDING" = "1" ]; then stage_processor_config DOCX; else sync_processor_env DOCX; fi
+fi
 
 # Commit the Reverb configuration only now: the release image is pulled and
 # attestation-verified (section 2) AND the artifactflow-reverb unit has been
@@ -577,7 +621,17 @@ fi
 echo
 echo "== Starting the database..."
 systemctl --user start artifactflow-postgres
+postgres_networks="$(podman inspect -f '{{json .NetworkSettings.Networks}}' artifactflow-postgres)" || \
+  die "Could not inspect PostgreSQL network attachments."
+if ! grep -Fq '"artifactflow-artifact"' <<< "$postgres_networks"; then
+  echo "== Reattaching the database to the isolated artifact network..."
+  systemctl --user restart artifactflow-postgres
+fi
 wait_healthy artifactflow-postgres || die "The database did not come up."
+postgres_networks="$(podman inspect -f '{{json .NetworkSettings.Networks}}' artifactflow-postgres)" || \
+  die "Could not inspect PostgreSQL network attachments."
+grep -Fq '"artifactflow-artifact"' <<< "$postgres_networks" || \
+  die "PostgreSQL did not join the isolated artifact database network."
 
 echo "== Extracting the database CA certificate..."
 podman exec artifactflow-postgres \
@@ -606,6 +660,20 @@ if [ "$DOCX_ENABLED" = "1" ]; then
   systemctl --user restart artifactflow-docx-processor
   wait_healthy artifactflow-docx-processor || die "The enabled DOCX processor did not become healthy."
 fi
+if [ "$PDF_PENDING" = "1" ] || [ "$XLSX_PENDING" = "1" ] || [ "$DOCX_PENDING" = "1" ]; then
+  echo "== Committing verified processor configuration..."
+  umask 077
+  PENDING_ENV_FILE="$(mktemp "$CFG/.app.env.pending.XXXXXX")" || die "Could not stage app configuration."
+  trap 'rm -f "$PENDING_ENV_FILE"' EXIT
+  cat "$CFG/app.env" > "$PENDING_ENV_FILE"
+  if [ "$PDF_PENDING" = "1" ]; then commit_processor_config PDF "$PENDING_ENV_FILE"; fi
+  if [ "$XLSX_PENDING" = "1" ]; then commit_processor_config XLSX "$PENDING_ENV_FILE"; fi
+  if [ "$DOCX_PENDING" = "1" ]; then commit_processor_config DOCX "$PENDING_ENV_FILE"; fi
+  chmod 0600 "$PENDING_ENV_FILE"
+  mv "$PENDING_ENV_FILE" "$CFG/app.env"
+  PENDING_ENV_FILE=""
+  trap - EXIT
+fi
 systemctl --user restart artifactflow-app
 wait_healthy artifactflow-app || die "The app did not come up (see journalctl --user -u artifactflow-app)."
 
@@ -615,7 +683,6 @@ podman exec artifactflow-app sh -c 'cd /var/www/html && php artisan migrate --fo
 # ---------- 6) restricted artifact-host role + grants ----------
 echo "== Creating the restricted artifact-host database role..."
 ARTHOST_DB_PW="$(read_env DB_PASSWORD "$CFG/artifact-host.env")"
-ARTHOST_DB_USER="$(read_env DB_USERNAME "$CFG/artifact-host.env")"
 podman exec -i artifactflow-postgres psql -v ON_ERROR_STOP=1 -U artifactflow_app -d artifactflow <<SQL
 DO \$\$
 BEGIN
@@ -627,20 +694,44 @@ END
 GRANT CONNECT ON DATABASE artifactflow TO ${ARTHOST_DB_USER};
 SQL
 
-echo "== Applying the grants manifest (from release $TAG)..."
-GRANTS_URL="https://raw.githubusercontent.com/Gadsotek/artifactflow/$TAG/docs/operations/artifact-host-database-grants.sql"
-if have curl && curl -fsSL "$GRANTS_URL" \
-     | podman exec -i artifactflow-postgres psql -v ON_ERROR_STOP=1 -U artifactflow_app -d artifactflow -f -; then
-  echo "  grants applied."
-else
-  echo "  !! Could not apply the grants automatically. Apply them manually:"
-  echo "     curl -fsSL $GRANTS_URL | podman exec -i artifactflow-postgres psql -U artifactflow_app -d artifactflow -f -"
-fi
+echo "== Applying the grants manifest (from pinned source $SOURCE_COMMIT)..."
+printf '%s\n' "$GRANTS_SQL" \
+  | podman exec -i artifactflow-postgres psql -v ON_ERROR_STOP=1 --single-transaction \
+      -U artifactflow_app -d artifactflow -f - \
+  || die "Could not apply the pinned artifact-host database grants."
+echo "  grants applied."
+echo "== Verifying the artifact-host database role can read pages..."
+printf '%s\n' "$ARTHOST_DB_PW" \
+  | podman exec -i artifactflow-postgres sh -c '
+      IFS= read -r PGPASSWORD
+      export PGPASSWORD
+      exec psql -X -w -qAt -h 127.0.0.1 -U artifactflow_artifact_host \
+        -d artifactflow -v ON_ERROR_STOP=1 -c "SELECT 1 FROM public.pages LIMIT 0"
+    ' \
+  || die "The configured artifact-host database role cannot read pages."
 
 # ---------- 7) artifact-host + background roles ----------
-echo "== Starting artifact-host, worker, and scheduler..."
-systemctl --user restart artifactflow-artifact-host artifactflow-worker artifactflow-scheduler
+echo "== Starting artifact-host, its ingress relay, worker, and scheduler..."
+systemctl --user restart artifactflow-artifact-host artifactflow-artifact-ingress artifactflow-worker artifactflow-scheduler
+host_networks="$(podman inspect -f '{{json .NetworkSettings.Networks}}' artifactflow-artifact-host)" || \
+  die "Could not inspect the restarted artifact-host networks."
+host_network_count="$(podman inspect -f '{{len .NetworkSettings.Networks}}' artifactflow-artifact-host)" || \
+  die "Could not count the restarted artifact-host networks."
+if [ "$host_network_count" != 2 ] || \
+   ! grep -Fq '"artifactflow-artifact"' <<< "$host_networks" || \
+   ! grep -Fq '"artifactflow-artifact-ingress"' <<< "$host_networks"; then
+  systemctl --user stop artifactflow-artifact-ingress artifactflow-artifact-host || \
+    die "Could not stop the misnetworked artifact-host."
+  die "The artifact-host did not start on exactly its two internal networks."
+fi
 wait_healthy artifactflow-artifact-host || die "The artifact host did not become healthy."
+wait_healthy artifactflow-artifact-ingress || die "The artifact ingress relay did not become healthy."
+artifact_status="$(curl --noproxy '*' --silent --show-error --max-time 5 \
+  --header "Host: $ART_HOST" --output /dev/null --write-out '%{http_code}' \
+  http://127.0.0.1:8081/login)" || \
+  die "The artifact-host loopback port is unreachable from nginx's host."
+[ "$artifact_status" = 404 ] || \
+  die "The artifact-host relay returned HTTP $artifact_status instead of its expected /login 404."
 
 if [ "$REVERB_ENABLED" = "1" ]; then
   echo "== Starting the Reverb realtime server..."

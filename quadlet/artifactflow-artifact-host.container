@@ -1,5 +1,5 @@
 # Artifact origin (ARTIFACT_URL). Serves untrusted artifact HTML on
-# 127.0.0.1:8081 behind the nginx vhost for the artifact hostname. Runs the
+# the ingress relay on a separate internal network behind the nginx vhost. Runs the
 # same release image with the cookieless artifact-host role; the storage
 # volume is mounted read-only, this surface serves bytes the app role wrote.
 #
@@ -22,7 +22,8 @@ After=artifactflow-postgres.service artifactflow-storage-init.service
 [Container]
 ContainerName=artifactflow-artifact-host
 Image=artifactflow-release.image
-Network=artifactflow.network
+Network=artifactflow-artifact.network
+Network=artifactflow-artifact-ingress.network
 EnvironmentFile=/etc/artifactflow/app.env
 EnvironmentFile=/etc/artifactflow/artifact-host.env
 Environment=APP_RUNTIME_ROLE=artifact-host PORT=8081 RUN_MIGRATIONS=0
@@ -35,7 +36,7 @@ Environment=DOCX_PROCESSOR_URL= DOCX_PROCESSOR_SOCKET_PATH= DOCX_PROCESSOR_SHARE
 # reverb boot gate or holds REVERB_APP_SECRET, whatever app.env carries once
 # Reverb is enabled for the app/worker/scheduler roles.
 Environment=BROADCAST_CONNECTION=null REVERB_APP_ID= REVERB_APP_KEY= REVERB_APP_SECRET=
-PublishPort=127.0.0.1:8081:8081
+Sysctl=net.ipv4.ip_forward=0
 Volume=artifactflow-storage:/var/www/html/storage/app:ro
 Volume=/etc/artifactflow/db-ca.pem:/etc/artifactflow/db-ca.pem:ro,z
 HealthCmd=sh /var/www/html/docker/healthcheck-app.sh

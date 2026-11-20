@@ -9,7 +9,8 @@
 #     from the release's root Dockerfile
 #   - deployment pin references in Dockerfile.image-parser and README
 #   - PR body: attestation verdict, and diffs of the artifact-host grants
-#     manifest and .env.production.example between the old and new tags, so
+#     manifest and .env.production.example between the old and new source
+#     commits, so
 #     new required configuration is visible before merge.
 #
 # All four new digests are attestation-verified (SLSA provenance, release
@@ -88,7 +89,7 @@ jobs:
               --predicate-type https://slsa.dev/provenance/v1
           done
 
-          new_php_base="$(curl -fsSL "https://raw.githubusercontent.com/$APP_REPO/$new_tag/Dockerfile" \
+          new_php_base="$(curl -fsSL "https://raw.githubusercontent.com/$APP_REPO/$new_commit/Dockerfile" \
             | grep -E '^FROM php:[^ ]+ AS image-parser$' | awk '{print $2}')"
           [ -n "$new_commit" ] && [ -n "$new_php_base" ]
 
@@ -103,15 +104,16 @@ jobs:
           sed -i -E "s|^FROM php:[^ ]+|FROM $new_php_base|" Dockerfile.image-parser
           sed -i "s/$cur_tag/$new_tag/g" Dockerfile.image-parser
           sed -i "s/\*\*Pinned release: $cur_tag\*\*/**Pinned release: $new_tag**/" README.md
-          sed -i "s|artifactflow/$cur_tag/docs/operations/artifact-host-database-grants.sql|artifactflow/$new_tag/docs/operations/artifact-host-database-grants.sql|" README.md
+          sed -i "s|artifactflow/$cur_commit/docs/operations/artifact-host-database-grants.sql|artifactflow/$new_commit/docs/operations/artifact-host-database-grants.sql|" README.md
 
-          # Operator-facing diffs for the PR body.
+          # Operator-facing diffs use the same immutable source revisions as
+          # the verified images and the installed grants manifest.
           raw="https://raw.githubusercontent.com/$APP_REPO"
-          curl -fsSL "$raw/$cur_tag/docs/operations/artifact-host-database-grants.sql" -o /tmp/grants-old.sql || : > /tmp/grants-old.sql
-          curl -fsSL "$raw/$new_tag/docs/operations/artifact-host-database-grants.sql" -o /tmp/grants-new.sql || : > /tmp/grants-new.sql
+          curl -fsSL "$raw/$cur_commit/docs/operations/artifact-host-database-grants.sql" -o /tmp/grants-old.sql
+          curl -fsSL "$raw/$new_commit/docs/operations/artifact-host-database-grants.sql" -o /tmp/grants-new.sql
           grants_diff="$(diff -u /tmp/grants-old.sql /tmp/grants-new.sql || true)"
-          curl -fsSL "$raw/$cur_tag/.env.production.example" -o /tmp/env-old || : > /tmp/env-old
-          curl -fsSL "$raw/$new_tag/.env.production.example" -o /tmp/env-new || : > /tmp/env-new
+          curl -fsSL "$raw/$cur_commit/.env.production.example" -o /tmp/env-old
+          curl -fsSL "$raw/$new_commit/.env.production.example" -o /tmp/env-new
           env_diff="$(diff -u /tmp/env-old /tmp/env-new || true)"
 
           {
