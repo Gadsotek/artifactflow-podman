@@ -1,4 +1,4 @@
-# Image parser for the pinned release (v1.0.1, commit below). On every
+# Image parser for the pinned release (v1.0.2, commit below). On every
 # release bump: update ARTIFACTFLOW_COMMIT to the new tag's **commit SHA**
 # (tags are mutable references and a source tarball carries no signature, so
 # the immutable SHA is the strongest pin available for a source archive),
@@ -12,8 +12,8 @@
 #   podman build -f Dockerfile.image-parser \
 #     -t localhost/artifactflow-image-parser:pinned .
 #
-# v1.0.1 = tag commit 25587053d0022cbc8b72d1e032f3673891e14892
-ARG ARTIFACTFLOW_COMMIT=25587053d0022cbc8b72d1e032f3673891e14892
+# v1.0.2 = tag commit 8b0f0b398198c93a74f611f3189a481f77cd8d63
+ARG ARTIFACTFLOW_COMMIT=8b0f0b398198c93a74f611f3189a481f77cd8d63
 
 FROM alpine:3.22 AS source
 ARG ARTIFACTFLOW_COMMIT
