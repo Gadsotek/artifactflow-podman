@@ -12,7 +12,7 @@ orchestration for one VM. Read the main repository's OPERATIONS document
 first; this runbook covers only what this topology looks like and the exact
 provisioning steps.
 
-**Pinned release: v1.0.1** (digest in `quadlet/artifactflow-release.image`).
+**Pinned release: v1.0.2** (digest in `quadlet/artifactflow-release.image`).
 The application is never built here: every app-role unit runs the release
 image from GHCR by digest. The image parser is built from the pinned release's
 source (`Dockerfile.image-parser`). XLSX and DOCX use the published immutable
@@ -311,7 +311,7 @@ systemctl --user daemon-reload
    db_pw_sql="$(printf '%s' "$db_pw" | sed "s/'/''/g")"
    printf "CREATE ROLE artifactflow_artifact_host LOGIN PASSWORD '%s';\nGRANT CONNECT ON DATABASE artifactflow TO artifactflow_artifact_host;\n" "$db_pw_sql" |
      podman exec -i artifactflow-postgres psql -v ON_ERROR_STOP=1 --single-transaction -U artifactflow_app -d artifactflow -f -
-   grants_sql="$(curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/25587053d0022cbc8b72d1e032f3673891e14892/docs/operations/artifact-host-database-grants.sql)"
+   grants_sql="$(curl -fsSL https://raw.githubusercontent.com/Gadsotek/artifactflow/8b0f0b398198c93a74f611f3189a481f77cd8d63/docs/operations/artifact-host-database-grants.sql)"
    [ -n "$grants_sql" ]
    printf '%s\n' "$grants_sql" |
      podman exec -i artifactflow-postgres psql -v ON_ERROR_STOP=1 --single-transaction -U artifactflow_app -d artifactflow -f -
